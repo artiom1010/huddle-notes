@@ -1,4 +1,6 @@
+import hashlib
 import json
+from datetime import datetime
 
 import numpy as np
 import pytest
@@ -7,14 +9,51 @@ from conftest import unit
 from huddle_notes.cli import _names
 from huddle_notes.config import ConfigError, Settings
 from huddle_notes.domain import Turn
+from huddle_notes.models import ModelFile, download
 from huddle_notes.people import PeopleLibrary, Sighting
-from huddle_notes.render import hms, transcript_markdown
+from huddle_notes.render import CallInfo, call_document, hms, participants, transcript_markdown
 
 
 def test_transcript_lines_carry_time_and_name():
     assert hms(3725.9) == "01:02:05"
     turns = [Turn(5, "Аня", "Начнём."), Turn(3725, "?", "Да.")]
     assert transcript_markdown(turns) == "[00:00:05] **Аня:** Начнём.\n\n[01:02:05] **?:** Да.\n\n"
+
+
+def test_one_document_per_call_notes_first_then_transcript():
+    info = CallInfo(datetime(2026, 11, 5, 10, 1), 2700, ["Аня", "Борис"])
+    turns = [Turn(0, "Аня", "Начнём."), Turn(3, "? (Аня или Борис)", "Да."), Turn(5, "Борис", "Давайте.")]
+    doc = call_document(info, turns, notes="### Краткое содержание\nПланёрка.")
+    assert doc.startswith("# Звонок 5 ноября 2026, 10:01\n\n5 ноября 2026, 10:01 · 45 мин · Участники: Аня, Борис")
+    assert doc.index("## Заметки") < doc.index("### Краткое содержание") < doc.index("## Расшифровка")
+    assert doc.endswith(transcript_markdown(turns))
+    assert "## Заметки" not in call_document(info, turns)
+    assert participants(turns) == ["Аня", "Борис"]
+    assert info.file_name == "2026-11-05 10-01.md"
+
+
+def test_models_are_chosen_in_one_place():
+    s = Settings.from_env({})
+    assert (s.whisper.name, s.voice.name, s.notes_model) == ("large-v3-turbo", "wespeaker-resnet34", "claude-opus-5-5")
+    assert s.whisper.dtw_preset == "large.v3.turbo"
+    other = Settings.from_env({"HUDDLE_WHISPER_MODEL": "large-v3", "HUDDLE_NOTES_MODEL": "claude-sonnet-5-5"})
+    assert other.whisper_model.name == "ggml-large-v3.bin"
+    assert other.whisper.dtw_preset == "large.v3"
+    with pytest.raises(ConfigError, match="choose one of large-v3-turbo, large-v3"):
+        Settings.from_env({"HUDDLE_WHISPER_MODEL": "tiny"})
+    with pytest.raises(ConfigError, match="HUDDLE_TIMEZONE"):
+        Settings.from_env({"HUDDLE_TIMEZONE": "Марс/Олимп"})
+
+
+def test_a_downloaded_model_is_used_only_if_its_checksum_matches(tmp_path):
+    source = tmp_path / "model.bin"
+    source.write_bytes(b"weights")
+    good = ModelFile("m", "", "m.bin", source.as_uri(), hashlib.sha256(b"weights").hexdigest())
+    assert download(good, tmp_path / "models").read_bytes() == b"weights"
+    bad = ModelFile("m", "", "bad.bin", source.as_uri(), "0" * 64)
+    with pytest.raises(ValueError, match="checksum"):
+        download(bad, tmp_path / "models")
+    assert sorted(p.name for p in (tmp_path / "models").iterdir()) == ["m.bin"]
 
 
 def test_settings_default_to_a_data_folder(tmp_path):

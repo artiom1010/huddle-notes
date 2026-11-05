@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -34,6 +35,14 @@ class Media:
 
     def duration(self, video: Path) -> float:
         return float(self._probe(video, "-show_entries", "format=duration"))
+
+    def recorded_at(self, video: Path) -> datetime | None:
+        """When the recording was made, if the file says so (a Mac screen recording does)."""
+        tag = self._probe(video, "-show_entries", "format_tags=creation_time")
+        try:
+            return datetime.fromisoformat(tag) if tag else None
+        except ValueError:
+            return None
 
     def frame_at(self, video: Path, t: float, size: tuple[int, int]) -> Frame | None:
         """One full-size frame at t seconds, or None if the video has none there."""

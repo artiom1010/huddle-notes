@@ -1,6 +1,8 @@
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from conftest import FakeEmbedder, group, unit
@@ -22,6 +24,13 @@ class Forbidden:
 
     def __getattr__(self, name: str) -> None:
         raise AssertionError(f"{name} was called although its result was already there")
+
+
+class RecordedAt(Forbidden):
+    """Media that only knows when the recording was made."""
+
+    def recorded_at(self, video: Path) -> datetime:
+        return datetime(2026, 11, 5, 8, 1, tzinfo=UTC)
 
 
 def whisper_json(segments: list[tuple[float, float, list[tuple[float, str]]]]) -> dict[str, object]:
@@ -53,17 +62,22 @@ def test_picks_up_finished_steps_instead_of_redoing_them(tmp_path):
     library = PeopleLibrary(tmp_path / "people", {"Аня": [[0.0] * 192], "Борис": [[100.0] * 192]}, {})
 
     processor = CallProcessor(
-        media=Forbidden(),  # type: ignore[arg-type]
+        media=RecordedAt(),  # type: ignore[arg-type]
         transcriber=Forbidden(),  # type: ignore[arg-type]
         detector=Forbidden(),  # type: ignore[arg-type]
         attributor=SpeakerAttributor(),
         library=library,
         embedder_for=lambda wav: FakeEmbedder(lambda t: unit(1, 0)),
+        timezone=ZoneInfo("Europe/Chisinau"),
     )
     result = processor.process(video, "глоссарий", {})
 
-    assert result.transcript == tmp_path / "call" / "Расшифровка.md"
-    assert result.transcript.read_text(encoding="utf-8") == (
+    # one file per call, named and dated in local time; the notes section comes with the notes step
+    assert result.document == tmp_path / "call" / "2026-11-05 10-01.md"
+    assert result.document.read_text(encoding="utf-8") == (
+        "# Звонок 5 ноября 2026, 10:01\n\n"
+        "5 ноября 2026, 10:01 · 1 мин · Участники: Аня, Борис\n\n"
+        "## Расшифровка\n\n"
         "[00:00:00] **Аня:** Начнём планёрку.\n\n[00:00:06] **Борис:** Да, давайте.\n\n"
     )
     assert "by tile 100.0%" in result.report
@@ -79,7 +93,7 @@ def test_a_failed_step_leaves_no_half_written_result(tmp_path):
     video.write_bytes(b"")
     processor = CallProcessor(
         BrokenMedia(),
-        WhisperTranscriber("whisper-cli", Path("m.bin")),
+        WhisperTranscriber("whisper-cli", Path("m.bin"), "large.v3.turbo"),
         SpeakerDetector(BrokenMedia()),
         SpeakerAttributor(),
         PeopleLibrary(tmp_path, {}, {}),

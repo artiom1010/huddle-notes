@@ -1,4 +1,5 @@
 # One image for every command:
+#   docker compose run --rm worker models download
 #   docker compose run --rm worker process /calls/<file>.mov --glossary команда
 #   docker compose run --rm worker regress /regression
 # The long-running worker (Google Drive, queue) and the Slack bot are added as services
