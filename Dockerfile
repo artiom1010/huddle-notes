@@ -2,7 +2,7 @@
 
 # whisper.cpp, the same version as on the Mac where the regression transcripts were made.
 # Built where the image is built (the server), so it uses that CPU's instructions.
-FROM python:3.12.16-slim-trixie AS whisper
+FROM python:3.15.0-slim-trixie AS whisper
 ARG WHISPER_CPP_VERSION=v1.9.5
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential cmake git ca-certificates \
@@ -11,7 +11,7 @@ RUN git clone --depth 1 --branch "${WHISPER_CPP_VERSION}" https://github.com/ggm
  && cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_TESTS=OFF \
  && cmake --build /build -j"$(nproc)" --target whisper-cli
 
-FROM python:3.12.16-slim-trixie
+FROM python:3.15.0-slim-trixie
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg libgomp1 \
  && rm -rf /var/lib/apt/lists/*
