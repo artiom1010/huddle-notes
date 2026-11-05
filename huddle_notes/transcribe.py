@@ -30,8 +30,8 @@ class WhisperTranscriber:
         self,
         binary: str,
         model: Path,
+        dtw_preset: str,
         language: str = "ru",
-        dtw_preset: str = "large.v3.turbo",
         timeout: float = 3 * 3600,
     ) -> None:
         self.binary = binary

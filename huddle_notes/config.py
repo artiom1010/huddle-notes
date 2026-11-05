@@ -1,9 +1,5 @@
-"""Settings from the environment, checked before any work starts.
-
-HUDDLE_DATA_DIR     people library and glossaries (default ./data)
-HUDDLE_MODELS_DIR   whisper and voice models (default <data>/models)
-HUDDLE_WHISPER_BIN  whisper.cpp command line tool (default whisper-cli)
-HUDDLE_HWACCEL      ffmpeg hardware decoding, e.g. videotoolbox on a Mac (default: none)
+"""All settings, read from the environment (on a server: the .env file) and checked
+before any work starts. .env.example lists every one of them with an explanation.
 """
 
 from __future__ import annotations
@@ -14,9 +10,11 @@ import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-WHISPER_MODEL = "ggml-large-v3-turbo.bin"
-VOICE_MODEL = "wespeaker_en_voxceleb_resnet34.onnx"
+from huddle_notes import models
+from huddle_notes.models import ModelFile, WhisperModel
+
 GLOSSARY_NAME = re.compile(r"^[\w-]{1,64}$")  # a file name, never a path
 
 
@@ -28,18 +26,31 @@ class ConfigError(RuntimeError):
 class Settings:
     data_dir: Path
     models_dir: Path
+    whisper: WhisperModel
+    voice: ModelFile
+    notes_model: str
+    timezone: ZoneInfo
     whisper_bin: str = "whisper-cli"
     hwaccel: str | None = None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] = os.environ) -> Settings:
         data = Path(env.get("HUDDLE_DATA_DIR", "data")).expanduser()
+        notes = env.get("HUDDLE_NOTES_MODEL", "claude-opus-5-5")
+        _pick("HUDDLE_NOTES_MODEL", notes, models.NOTES)
         return cls(
             data_dir=data,
-            models_dir=Path(env.get("HUDDLE_MODELS_DIR", str(data / "models"))).expanduser(),
+            models_dir=Path(env.get("HUDDLE_MODELS_DIR") or data / "models").expanduser(),
+            whisper=_pick("HUDDLE_WHISPER_MODEL", env.get("HUDDLE_WHISPER_MODEL", "large-v3-turbo"), models.WHISPER),
+            voice=_pick("HUDDLE_VOICE_MODEL", env.get("HUDDLE_VOICE_MODEL", "wespeaker-resnet34"), models.VOICE),
+            notes_model=notes,
             whisper_bin=env.get("HUDDLE_WHISPER_BIN", "whisper-cli"),
             hwaccel=env.get("HUDDLE_HWACCEL") or None,
+            timezone=_zone(env.get("HUDDLE_TIMEZONE", "UTC")),
         )
+
+    def describe_models(self) -> str:
+        return f"whisper {self.whisper.name}, voices {self.voice.name}, notes {self.notes_model}"
 
     @property
     def people_dir(self) -> Path:
@@ -47,11 +58,11 @@ class Settings:
 
     @property
     def whisper_model(self) -> Path:
-        return self.models_dir / WHISPER_MODEL
+        return self.models_dir / self.whisper.file
 
     @property
     def voice_model(self) -> Path:
-        return self.models_dir / VOICE_MODEL
+        return self.models_dir / self.voice.file
 
     def glossary(self, name: str) -> str:
         """The prompt that teaches whisper a team's names and terms (data/glossaries/<name>.txt)."""
@@ -63,11 +74,11 @@ class Settings:
         return path.read_text(encoding="utf-8").strip()
 
     def require_voice_model(self) -> None:
-        _require_file(self.voice_model, "voice model (scripts/download-models.sh)")
+        _require_file(self.voice_model, f"voice model {self.voice.name}")
 
     def require_transcription(self) -> None:
         self.require_voice_model()
-        _require_file(self.whisper_model, "whisper model (scripts/download-models.sh)")
+        _require_file(self.whisper_model, f"whisper model {self.whisper.name}")
         if shutil.which(self.whisper_bin) is None:
             raise ConfigError(f"{self.whisper_bin} not found: install whisper.cpp or set HUDDLE_WHISPER_BIN")
         for tool in ("ffmpeg", "ffprobe"):
@@ -75,6 +86,19 @@ class Settings:
                 raise ConfigError(f"{tool} not found")
 
 
+def _pick[T](setting: str, name: str, catalogue: Mapping[str, T]) -> T:
+    if name not in catalogue:
+        raise ConfigError(f"{setting}={name!r}: choose one of {', '.join(catalogue)}")
+    return catalogue[name]
+
+
+def _zone(name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as e:
+        raise ConfigError(f"HUDDLE_TIMEZONE={name!r}: not a time zone, e.g. Europe/Chisinau") from e
+
+
 def _require_file(path: Path, what: str) -> None:
     if not path.is_file():
-        raise ConfigError(f"missing {what}: {path}")
+        raise ConfigError(f"missing {what}: {path} (run: huddle-notes models download)")

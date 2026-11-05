@@ -59,7 +59,7 @@ def test_short_words_still_last_a_little(tmp_path):
 
 
 def test_command_passes_the_glossary_as_a_prompt_without_a_shell():
-    cmd = WhisperTranscriber("whisper-cli", Path("m.bin")).command(
+    cmd = WhisperTranscriber("whisper-cli", Path("m.bin"), "large.v3.turbo").command(
         Path("a.wav"), Path("out/words"), "Трактор; rm -rf /"
     )
     assert cmd[0] == "whisper-cli"

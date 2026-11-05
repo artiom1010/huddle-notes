@@ -13,7 +13,7 @@ RUN git clone --depth 1 --branch "${WHISPER_CPP_VERSION}" https://github.com/ggm
 
 FROM python:3.12.16-slim-trixie
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg libgomp1 \
+ && apt-get install -y --no-install-recommends ffmpeg libgomp1 tzdata \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=whisper /build/bin/whisper-cli /usr/local/bin/whisper-cli
 
