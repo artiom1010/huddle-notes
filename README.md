@@ -17,7 +17,7 @@
 ## Как это работает
 
 ```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 20, "rankSpacing": 28, "padding": 6}, "themeVariables": {"fontSize": "12px"}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 400, "nodeSpacing": 20, "rankSpacing": 28, "padding": 6}, "themeVariables": {"fontSize": "12px"}}}%%
 flowchart TD
   S5[("База команды<br/>аватарки, голоса, словарь")]
   subgraph PC["Компьютер Тони"]
@@ -39,7 +39,7 @@ flowchart TD
     A1["Claude<br/>читает расшифровку, пишет заметки"]
   end
   subgraph SL["Slack"]
-    C1["Канал #huddle-notes<br/>сообщение и один файл:<br/>Заметки + Расшифровка"]
+    C1["Канал #huddle-notes: сообщение<br/>и один файл «Заметки + Расшифровка»"]
     C2["Тони: «Верно» или «Неверно»,<br/>правка в треде"]
   end
   T1 --> T2 -->|видеофайл| G1 -->|видеофайл| S1
