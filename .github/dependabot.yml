@@ -12,3 +12,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # stay on Python 3.12 (what the code, pyproject and regression are built on); patches only
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
