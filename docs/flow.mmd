@@ -1,0 +1,33 @@
+%%{init: {"theme": "base", "htmlLabels": false, "flowchart": {"htmlLabels": false, "curve": "basis", "nodeSpacing": 30, "rankSpacing": 40, "wrappingWidth": 400}, "themeVariables": {"fontSize": "13px", "lineColor": "#73726c", "textColor": "#3d3d3a", "primaryColor": "#E1F5EE", "primaryBorderColor": "#0F6E56", "primaryTextColor": "#3d3d3a", "clusterBkg": "#F1EFE8", "clusterBorder": "#B4B2A9", "edgeLabelBackground": "#FAEEDA", "titleColor": "#3d3d3a"}}}%%
+flowchart TD
+  subgraph PC["Компьютер Тони"]
+    T1["Тони нажимает «старт» и «стоп» в OBS"]
+    T2["OBS записывает окно хадла:<br/>видео, звук Slack и микрофон Тони"]
+  end
+  subgraph GD["Google Диск"]
+    G1["Папка с записями<br/>файл загружается сам"]
+  end
+  subgraph SRV["Наш сервер"]
+    S1["Забирает новую запись<br/>и ставит в очередь"]
+    S2["Whisper<br/>переводит речь в текст"]
+    S3["«Кто говорит»<br/>подсвеченная плитка, аватарка, голос"]
+    S4["Склеивает текст и имена<br/>в расшифровку"]
+    S5[("База команды<br/>аватарки, голоса, словарь")]
+    S6["Бот @huddle_notes<br/>отправляет результат в Slack"]
+  end
+  subgraph AN["Anthropic"]
+    A1["Claude<br/>читает расшифровку, пишет заметки"]
+  end
+  subgraph SL["Slack"]
+    C1["Канал #huddle-notes<br/>сообщение и один файл:<br/>Заметки + Расшифровка"]
+    C2["Тони: «Верно» или «Неверно»,<br/>правка в треде"]
+  end
+  T1 --> T2 -->|видеофайл| G1 -->|видеофайл| S1
+  S1 -->|звук| S2
+  S1 -->|видео| S3
+  S2 -->|текст со временем| S4
+  S3 -->|кто когда говорил| S4
+  S5 -.->|словарь терминов| S2
+  S5 -.->|аватарки и голоса| S3
+  S4 -->|только текст| A1 -->|заметки| S6 --> C1 --> C2
+  C2 -.->|правка| S6 -.->|исправляет| S5
