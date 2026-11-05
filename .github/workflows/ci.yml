@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: style, types, tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12.16"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy
+      - run: pytest -q
+
+  scripts:
+    name: shell scripts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: shellcheck deploy.sh scripts/*.sh
+
+  docker:
+    name: docker image
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build --tag huddle-notes:ci .
+      - name: the image runs, as a non-root user, with whisper and ffmpeg inside
+        run: |
+          docker run --rm huddle-notes:ci --help
+          docker run --rm --entrypoint whisper-cli huddle-notes:ci --help > /dev/null
+          docker run --rm --entrypoint ffmpeg huddle-notes:ci -version > /dev/null
+          test "$(docker run --rm --entrypoint id huddle-notes:ci -u)" != 0
+
+  secrets:
+    name: no secrets in the code
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # free for personal accounts; a repository in an organization needs GITLEAKS_LICENSE
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,23 @@
+# One image for every command:
+#   docker compose run --rm worker process /calls/<file>.mov --glossary команда
+#   docker compose run --rm worker regress /regression
+# The long-running worker (Google Drive, queue) and the Slack bot are added as services
+# in the next stage.
+services:
+  worker:
+    build: .
+    image: huddle-notes:local
+    env_file: .env
+    environment:
+      HUDDLE_DATA_DIR: /data
+    volumes:
+      - ${HUDDLE_HOST_DATA:-/srv/huddle-notes/data}:/data
+      - ${HUDDLE_HOST_CALLS:-/srv/huddle-notes/calls}:/calls
+      - ${HUDDLE_HOST_REGRESSION:-/srv/huddle-notes/regression}:/regression
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
