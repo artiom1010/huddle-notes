@@ -1,5 +1,5 @@
-"""All settings, read from the environment (on a server: the .env file) and checked
-before any work starts. .env.example lists every one of them with an explanation.
+"""All settings, read from the environment or a .env file, and checked before any work
+starts. .env.example lists every one of them with an explanation.
 """
 
 from __future__ import annotations
@@ -30,8 +30,15 @@ class Settings:
     voice: ModelFile
     notes_model: str
     timezone: ZoneInfo
+    inbox: Path
+    results_dir: Path
+    glossary_name: str | None = None
     whisper_bin: str = "whisper-cli"
+    claude_bin: str = "claude"
     hwaccel: str | None = None
+    slack_token: str | None = None
+    slack_channel: str | None = None
+    slack_notify_user: str | None = None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] = os.environ) -> Settings:
@@ -47,6 +54,14 @@ class Settings:
             whisper_bin=env.get("HUDDLE_WHISPER_BIN", "whisper-cli"),
             hwaccel=env.get("HUDDLE_HWACCEL") or None,
             timezone=_zone(env.get("HUDDLE_TIMEZONE", "UTC")),
+            # «Записи» and «Результаты» sit next to the data folder unless set otherwise
+            inbox=Path(env.get("HUDDLE_INBOX") or data.parent / "Записи").expanduser(),
+            results_dir=Path(env.get("HUDDLE_RESULTS") or data.parent / "Результаты").expanduser(),
+            glossary_name=env.get("HUDDLE_GLOSSARY") or None,
+            claude_bin=env.get("HUDDLE_CLAUDE_BIN", "claude"),
+            slack_token=env.get("SLACK_BOT_TOKEN") or None,
+            slack_channel=env.get("SLACK_CHANNEL") or None,
+            slack_notify_user=env.get("SLACK_NOTIFY_USER") or None,
         )
 
     def describe_models(self) -> str:
@@ -55,6 +70,17 @@ class Settings:
     @property
     def people_dir(self) -> Path:
         return self.data_dir / "people"
+
+    @property
+    def work_dir(self) -> Path:
+        """Each recording's intermediate results (audio, whisper, tiles, notes)."""
+        return self.data_dir / "work"
+
+    def require_slack(self) -> tuple[str, str]:
+        """The bot token and the channel ID, both needed to send results to Slack."""
+        if not (self.slack_token and self.slack_channel):
+            raise ConfigError("SLACK_BOT_TOKEN and SLACK_CHANNEL are needed to send results to Slack")
+        return self.slack_token, self.slack_channel
 
     @property
     def whisper_model(self) -> Path:
@@ -102,3 +128,20 @@ def _zone(name: str) -> ZoneInfo:
 def _require_file(path: Path, what: str) -> None:
     if not path.is_file():
         raise ConfigError(f"missing {what}: {path} (run: huddle-notes models download)")
+
+
+def load_env_file(path: Path, env: dict[str, str] | None = None) -> None:
+    """KEY=VALUE lines into the environment; values already set win. Quotes around a value
+    are dropped, '#' starts a comment line. Works the same on Windows, where the shell
+    can't source the file."""
+    target = os.environ if env is None else env
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = (part.strip() for part in line.split("=", 1))
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        target.setdefault(key, value)

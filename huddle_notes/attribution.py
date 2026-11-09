@@ -41,6 +41,7 @@ class Tuning:
     veto_own: float = 0.2
     min_voice_sec: float = 1.5
     min_local_chunks: int = 3  # stretches needed to build a voiceprint from this call alone
+    min_visible_share: float = 0.5  # below this share of speech under lit tiles, voices may name anyone
     win: float = 3.0  # voice windows that cut a stretch with no lit tile
     win_min: float = 0.45
     win_margin: float = 0.1
@@ -208,10 +209,11 @@ class SpeakerAttributor:
         """This call's embeddings long enough to judge a voice by."""
         return [c.emb for c in chunks if c.emb is not None and c.duration >= self.t.min_voice_sec]
 
-    # Voices to compare against: only people seen on this call (the library also holds
-    # people who weren't there), and for those who spoke under a lit tile here, this
-    # call's own recording of their voice: same mic chain and codec, so it beats a print
-    # from another call
+    # Voices to compare against. For those who spoke under a lit tile here, this call's own
+    # recording of their voice: same mic chain and codec, so it beats a print from another
+    # call. Who else: when the huddle window was visible most of the time, only people seen
+    # on it (the library also holds people who weren't there); when it was mostly hidden,
+    # tiles show too few of those present, so everyone in the library
     def _prints_for_call(
         self, names: dict[int, GroupName], chunks: list[Chunk], prints: dict[str, Vector]
     ) -> dict[str, Vector]:
@@ -224,7 +226,15 @@ class SpeakerAttributor:
             own = self._voice(c for c in chunks if c.group is not None and group_name.get(c.group) == n)
             if len(own) >= self.t.min_local_chunks:
                 local[n] = voiceprint(own)
+        if self._visible_share(chunks) < self.t.min_visible_share:
+            return {**prints, **local}
         return {n: local[n] if n in local else prints[n] for n in present if n in local or n in prints}
+
+    @staticmethod
+    def _visible_share(chunks: list[Chunk]) -> float:
+        """Share of speech time under a lit tile."""
+        total = sum(c.duration for c in chunks)
+        return sum(c.duration for c in chunks if c.group is not None) / total if total else 0.0
 
     # A stretch with no lit tile (screen share, hidden window) can hold several people:
     # label short overlapping windows by voice, give each word its window's label
