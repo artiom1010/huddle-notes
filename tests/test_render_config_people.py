@@ -83,7 +83,9 @@ def test_glossary_is_a_name_never_a_path(tmp_path):
 
 def test_names_from_the_command_line():
     assert _names('{"3": "Вася", "4": " "}') == {3: "Вася"}
-    for bad in ("[1]", '{"x": "Вася"}', "{"):
+    assert _names("3=Вася, 5 = Петя") == {3: "Вася", 5: "Петя"}
+    assert _names("") == {}
+    for bad in ("[1]", '{"x": "Вася"}', "{", "Вася", "x=Вася"):
         with pytest.raises(ConfigError):
             _names(bad)
 

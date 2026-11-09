@@ -8,6 +8,7 @@ from datetime import datetime
 
 from huddle_notes.attribution import Attribution
 from huddle_notes.domain import Basis, NamedBy, Turn
+from huddle_notes.notes import split_title
 
 MONTHS = (
     "января",
@@ -37,6 +38,14 @@ class CallInfo:
         return f"{s.day} {MONTHS[s.month - 1]} {s.year}, {s:%H:%M}"
 
     @property
+    def minutes(self) -> int:
+        return max(1, round(self.duration / 60))
+
+    @property
+    def byline(self) -> str:
+        return f"{self.when} · {self.minutes} мин · Участники: {', '.join(self.participants)}"
+
+    @property
     def file_name(self) -> str:
         return f"{self.started:%Y-%m-%d %H-%M}.md"
 
@@ -61,16 +70,17 @@ def report(result: Attribution, words: int) -> str:
         n = result.names[g.id]
         lines.append(f"  group {g.id}: {n.name} — {n.detail}; voice says {n.voice[0]} {n.voice[1]}")
     if any(n.by == NamedBy.UNKNOWN for n in result.names.values()):
-        lines.append('name them: huddle-notes process <video> --names \'{"<group>": "Имя"}\' --learn')
+        lines.append('name them: huddle-notes process <video> --names "<group>=Имя" --learn')
     return "\n".join(lines)
 
 
 def call_document(info: CallInfo, turns: list[Turn], notes: str | None = None) -> str:
-    """The one file a call ends with, as in Gemini notes: the notes first, then the transcript."""
-    minutes = max(1, round(info.duration / 60))
-    head = f"# Звонок {info.when}\n\n{info.when} · {minutes} мин · Участники: {', '.join(info.participants)}\n\n"
-    body = f"## Заметки\n\n{notes.strip()}\n\n" if notes else ""
-    return f"{head}{body}## Расшифровка\n\n{transcript_markdown(turns)}"
+    """The one file a call ends with, as in Gemini notes: the notes first, then the transcript.
+    The notes' own '# Тема' line becomes the document's title."""
+    title, body = split_title(notes) if notes else (None, "")
+    head = f"# {title or 'Звонок ' + info.when}\n\n{info.byline}\n\n"
+    notes_part = f"## Заметки\n\n{body}\n\n" if body else ""
+    return f"{head}{notes_part}## Расшифровка\n\n{transcript_markdown(turns)}"
 
 
 def participants(turns: list[Turn]) -> list[str]:

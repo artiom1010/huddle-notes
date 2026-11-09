@@ -98,3 +98,21 @@ def test_a_call_with_one_voice_gives_no_voiceprint_rather_than_nan():
     assert all(c.emb is None for c in result.chunks)
     assert attributor.sightings(result)[0].voice_stretches == []
     assert [t.who for t in result.turns()] == ["Аня"]
+
+
+def test_when_the_window_was_mostly_hidden_voice_may_name_someone_never_seen():
+    # Аня lit at the start, then 30 s with no tile in a voice the library knows as Борис's
+    anna = group(1, [(0, 4.5)], fingerprint=0.0)
+    embedder = FakeEmbedder(lambda t: E1 if t < 5 else E2)
+    prints = {"Аня": ANNA_VOICE, "Борис": BORIS_VOICE}
+    hidden = SpeakerAttributor().attribute(words(0, 4) + words(8, 38), [anna], embedder, AVATARS, prints, {})
+    assert [t.who for t in hidden.turns()] == ["Аня", "Борис"]
+
+
+def test_when_the_window_was_mostly_visible_only_people_seen_are_named_by_voice():
+    # the same unlit voice, but most of the call is under Аня's lit tile
+    anna = group(1, [(0, 40.5)], fingerprint=0.0)
+    embedder = FakeEmbedder(lambda t: E2 if 45 <= t < 55 else E1)
+    prints = {"Аня": ANNA_VOICE, "Борис": BORIS_VOICE}
+    visible = SpeakerAttributor().attribute(words(0, 40) + words(45, 54), [anna], embedder, AVATARS, prints, {})
+    assert "Борис" not in [t.who for t in visible.turns()]
