@@ -6,6 +6,7 @@ picks up where it stopped instead of redoing the slow parts (whisper, video, Cla
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -16,7 +17,7 @@ from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 
 from huddle_notes.attribution import Attribution, Embedder, SpeakerAttributor
-from huddle_notes.domain import Crop, Detection, NamedBy
+from huddle_notes.domain import Crop, Detection, NamedBy, SpeakerGroup
 from huddle_notes.media import Media, MediaError
 from huddle_notes.notes import NotesError, NotesWriter
 from huddle_notes.people import PeopleLibrary
@@ -152,11 +153,12 @@ class CallProcessor:
         return started.astimezone(self.timezone)
 
     def _save_unknown_faces(self, detection: Detection, result: Attribution, folder: Path) -> list[Path]:
-        """Faces nobody could name, so a person can name them. Faces from an earlier run
+        """Whom nobody could name, so a person can name them: the whole window with their
+        tile outlined, since a tile alone can't be told apart. Pictures from an earlier run
         of this call go first: whoever was named since is no longer unknown."""
         video = Path(detection.video)
         for old in folder.glob("*.jpg"):
-            old.unlink()
+            old.unlink(missing_ok=True)
         saved = []
         for g in result.groups:
             name = result.names[g.id]
@@ -164,8 +166,11 @@ class CallProcessor:
                 continue
             folder.mkdir(parents=True, exist_ok=True)
             face = _face_file(folder, name.name.rstrip("?"))
-            if self._save_face(video, g.sample_t, g.crop, face):
+            if self._save_face(self.media.save_marked, video, g, face):
                 saved.append(face)
+        if folder.is_dir() and not any(folder.iterdir()):
+            with contextlib.suppress(OSError):  # an empty folder left behind costs nothing
+                folder.rmdir()  # everyone is known now
         return saved
 
     def _learn(self, detection: Detection, result: Attribution) -> None:
@@ -175,13 +180,14 @@ class CallProcessor:
             name = result.names[g.id]
             face = _face_file(self.library.faces, name.name)
             if name.by in (NamedBy.MANUAL, NamedBy.AVATAR) and not face.exists():
-                self._save_face(video, g.sample_t, g.crop, face)
+                self._save_face(self.media.save_crop, video, g, face)
         self.library.learn(self.attributor.sightings(result))
         self.library.save()
 
-    def _save_face(self, video: Path, t: float, crop: Crop, path: Path) -> bool:
+    @staticmethod
+    def _save_face(save: Callable[[Path, float, Crop, Path], None], video: Path, g: SpeakerGroup, path: Path) -> bool:
         try:
-            self.media.save_crop(video, t, crop, path)
+            save(video, g.sample_t, g.crop, path)
             return True
         except MediaError as e:  # a missing face never costs the transcript
             log.warning("no face for %s: %s", path.stem, e)

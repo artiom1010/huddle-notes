@@ -21,6 +21,7 @@ Tile = tuple[int, int, int, int]  # x0, y0, x1, y1
 RUN = 24  # straight border length we require
 GAP = 3  # px outside the border that must be background, not white
 THUMB = 8  # avatar fingerprint: THUMB x THUMB colour blocks
+TALL = 1.25  # height / width above which a traced tile is wrong: Slack's tiles are about square
 
 
 def shift(a: Mask, dy: int, dx: int) -> Mask:
@@ -110,9 +111,39 @@ def speaking_tiles(fr: Frame) -> list[Tile]:
             run_length(bright[cy - 1 : cy + 2, cx + 8 :].any(axis=0)),
             run_length(bright[max(0, top - 1) : top + 7, cx + 8 :].any(axis=0)),
         )
-        right = cx + 8 + 6 + max(runs)
-        if right - cx > 1.3 * (cy - top):  # the speaker's glow or a light photo bridged into the next tile
-            right = cx + 8 + 6 + min(runs)
+        right = _right(cx, cy, top, runs)
+        if cy - top > TALL * (right - cx):
+            # taller than any tile: the left border ran on through something white above it
+            # (a neighbour's white photo), or a tooltip over the bottom border cut the width
+            own = _own_top(white, bright, int(cx), int(cy), int(top))
+            if own is None:  # no top border of its own: not a tile we can trust
+                continue
+            top, right = own
         if right - cx > 2 * RUN and cy - top > 2 * RUN:
             tiles.append((int(cx), int(top), int(right), int(cy)))
     return tiles
+
+
+def _right(cx: int, cy: int, top: int, runs: tuple[int, int]) -> int:
+    """Right edge from the bottom and top border lengths; the shorter one when the longer
+    makes the tile too wide (the speaker's glow or a light photo bridged into the next tile)."""
+    right = cx + 8 + 6 + max(runs)
+    if right - cx > 1.3 * (cy - top):
+        right = cx + 8 + 6 + min(runs)
+    return right
+
+
+def _own_top(white: Mask, bright: Mask, cx: int, cy: int, top: int) -> tuple[int, int] | None:
+    """The tile's own top border: going up from the bottom, the first white line about as
+    wide as the bottom border with background just above it (a white photo has more white
+    above). With it, the top and the width it gives; None when there is no such line.
+    The width to match comes from the bottom border alone: the top run measured at a wrong
+    top belongs to whatever the trace ran into."""
+    bottom = run_length(bright[cy - 1 : cy + 2, cx + 8 :].any(axis=0))
+    need = max(2 * RUN, int(0.8 * bottom))  # a tile is never narrower than 2 * RUN
+    for y in range(cy - 2 * RUN, top + 5, -1):  # down to the traced top border itself, at top + 6
+        run = run_length(white[y : y + 2, cx + 8 :].any(axis=0))  # the line's top row is y
+        if run < need or (y >= GAP and white[y - GAP, cx + 8 : cx + 8 + run].mean() > 0.2):
+            continue
+        return y - 6, _right(cx, cy, y - 6, (bottom, run))
+    return None

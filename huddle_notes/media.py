@@ -84,6 +84,13 @@ class Media:
         cmd = ["ffmpeg", "-loglevel", "error", "-y", "-ss", str(t), "-i", str(video), "-frames:v", "1"]
         self._run([*cmd, "-vf", f"crop={w}:{h}:{x}:{y},scale={width}:-1", str(out)], QUICK)
 
+    def save_marked(self, video: Path, t: float, crop: Crop, out: Path, width: int = 1280) -> None:
+        """The whole frame at t with the crop outlined in red: who it is, among everyone."""
+        x, y, w, h = crop
+        box = f"drawbox=x={x}:y={y}:w={w}:h={h}:color=red:t={max(4, w // 40)}"
+        cmd = ["ffmpeg", "-loglevel", "error", "-y", "-ss", str(t), "-i", str(video), "-frames:v", "1"]
+        self._run([*cmd, "-vf", f"{box},scale={width}:-2", str(out)], QUICK)
+
     def _probe(self, video: Path, *args: str) -> str:
         out = self._run(["ffprobe", "-v", "error", *args, "-of", "csv=p=0", str(video)], QUICK)
         return out.decode().strip()

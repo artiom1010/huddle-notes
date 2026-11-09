@@ -33,8 +33,8 @@ def slack_text(result: CallResult, mention: str | None = None) -> str:
     if result.unknown_faces:
         who = ", ".join(f.stem for f in result.unknown_faces)
         lines.append(
-            f"Кто это: {who}? Лица во вложении. Ответьте в Claude Code в папке Huddle Notes, "
-            f"например: «{result.unknown_faces[0].stem} — это Вася»."
+            f"Не узнал: {who}. На снимке во вложении — в красной рамке. Кто это? Ответьте в Claude Code "
+            f"в папке Huddle Notes, например: «{result.unknown_faces[0].stem} — это Вася»."
         )
     return "\n".join(lines)
 
