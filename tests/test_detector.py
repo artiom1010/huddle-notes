@@ -59,3 +59,37 @@ def test_groups_detections_by_avatar_and_joins_flicker_into_segments():
 def test_picks_the_scale_that_finds_one_speaker():
     detector = SpeakerDetector(FakeMedia(["anna"] * 30))
     assert detector.calibrate(Path("call.mov"), (960, 540)) == 1
+
+
+class SlidingMedia(FakeMedia):
+    """Anna's lit tile at a given x in each frame, as while the window opens or closes."""
+
+    def __init__(self, xs: list[int]) -> None:
+        super().__init__(["anna"] * len(xs))
+        self.xs = xs
+
+    def frames(self, video: Path, fps: int, size: tuple[int, int]) -> Iterator[Frame]:
+        for x in self.xs:
+            yield frame(tile=(x, 100, x + 200, 250), avatar=(90, 60, 120))
+
+
+def test_a_tile_caught_moving_is_not_used():
+    # the window slides in (40, 70), stands still (100 x 5), slides out (130, 160)
+    detection = SpeakerDetector(SlidingMedia([40, 70, 100, 100, 100, 100, 100, 130, 160])).detect(Path("call.mov"))
+    (anna,) = detection.groups
+    assert anna.frames == 5
+    assert anna.segments == [(0.5, 1.75)]
+    assert anna.crop[0] == 100  # the picture comes from where the tile stood still
+    assert anna.sample_t == 1.0  # the middle of that stretch, not its first frame
+
+
+def test_a_window_that_only_moves_gives_no_speakers():
+    assert SpeakerDetector(SlidingMedia([40, 70, 100, 130, 160])).detect(Path("call.mov")).groups == []
+
+
+def test_a_flickering_or_alternating_speaker_is_kept():
+    # lit every other frame, always in one place: not a moving window
+    alternating = SpeakerDetector(FakeMedia(["anna", "boris"] * 10)).detect(Path("call.mov"))
+    assert [g.frames for g in alternating.groups] == [10, 10]
+    flickering = SpeakerDetector(FakeMedia(["anna", "-"] * 10)).detect(Path("call.mov"))
+    assert [g.frames for g in flickering.groups] == [10]

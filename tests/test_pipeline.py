@@ -133,6 +133,27 @@ def test_another_recording_from_the_same_minute_gets_its_own_file(tmp_path):
     assert first.exists()
 
 
+def test_whom_nobody_knows_is_shown_on_the_whole_window(tmp_path):
+    marked: list[tuple[float, str]] = []
+
+    class Marking(RecordedAt):
+        def save_marked(self, video: Path, t: float, crop: tuple[int, int, int, int], out: Path) -> None:
+            marked.append((t, out.name))
+            out.write_bytes(b"jpg")
+
+    video, processor, _ = finished_steps(tmp_path)
+    processor.library = PeopleLibrary(tmp_path / "people", {}, {})  # nobody known yet
+    processor.media = Marking()  # type: ignore[assignment]
+    folder = tmp_path / "Результаты" / "Не опознаны" / "2026-11-05 10-01"
+    folder.mkdir(parents=True)
+    (folder / "Вася.jpg").write_bytes(b"old")  # named since the last run
+
+    result = processor.process(video, "", {})
+    assert [f.name for f in result.unknown_faces] == ["Участник 1.jpg", "Участник 2.jpg"]
+    assert marked == [(0, "Участник 1.jpg"), (6, "Участник 2.jpg")]  # each at its sample frame
+    assert sorted(f.name for f in folder.iterdir()) == ["Участник 1.jpg", "Участник 2.jpg"]
+
+
 def test_without_notes_the_call_still_gets_its_transcript(tmp_path):
     video, processor, notes = finished_steps(tmp_path)
     notes.answer = NotesError("Claude did not answer in 900 s")

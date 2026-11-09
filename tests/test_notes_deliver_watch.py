@@ -74,7 +74,7 @@ def result(tmp_path: Path, notes: str | None = NOTES, error: str | None = None, 
 def test_slack_message_is_the_title_and_only_the_questions(tmp_path):
     assert slack_text(result(tmp_path), mention="U0TONY") == "<@U0TONY> *Планёрка: загрузки*"
     text = slack_text(result(tmp_path, faces=1))
-    assert text.startswith("*Планёрка: загрузки*\nКто это: Участник 3? Лица во вложении.")
+    assert text.startswith("*Планёрка: загрузки*\nНе узнал: Участник 3. На снимке во вложении — в красной рамке.")
     assert "«Участник 3 — это Вася»" in text
 
 
