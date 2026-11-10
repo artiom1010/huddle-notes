@@ -69,6 +69,7 @@ class Wishes:
 ASK = "Что не так с заметками? Напишите здесь в ответ — учту со следующего звонка."
 THANKS = "Записал в пожелания к заметкам, учту со следующего звонка."
 DAYS = 14  # how far back replies under the bot's messages are read
+REPLY = (None, "thread_broadcast")  # a person's reply, also one sent to the channel too
 
 
 class SlackFeedback:
@@ -141,8 +142,8 @@ class SlackFeedback:
         written = 0
         for r in new:
             text = r.get("text", "").strip()
-            if r.get("user") == me or r.get("bot_id") or r.get("subtype") or not text:
-                continue  # the bot's own answers, joins, empty or edited-away messages
+            if r.get("user") == me or r.get("bot_id") or r.get("subtype") not in REPLY or not text:
+                continue  # the bot's own answers, other apps, joins, empty messages
             when = datetime.fromtimestamp(float(r["ts"]), UTC).astimezone(self.timezone)
             line = self.wishes.add(when, self._name(r.get("user", "")), f"Slack, звонок {call}", html.unescape(text))
             log.info("wish from Slack: %s", line)
@@ -171,7 +172,7 @@ class SlackFeedback:
                 profile = self.client.users_info(user=user)["user"]
                 p = profile.get("profile", {})
                 self._names[user] = p.get("display_name") or p.get("real_name") or profile.get("name") or user
-            except SlackApiError:
+            except (SlackApiError, OSError):  # a name is not worth losing the wish
                 self._names[user] = user
         return self._names[user]
 

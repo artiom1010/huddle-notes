@@ -146,24 +146,27 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
   Если там поправка имени («Участник 3 — это Вася»), предложи исправить звонок, как выше.
 - **Что-то не работает:** смотри `данные\logs\watch.log` и журнал в «Результатах».
   Ошибки чтения отзывов в логе начинаются с `feedback not read`.
-- **«Обнови программу»** (владелец распаковал архив обновления в эту папку с заменой файлов):
+- **«Обнови программу из папки <путь>»** (владелец распаковал архив «Обновление Huddle Notes»:
+  в нём `программа\` и `CLAUDE.md`). Сначала прочитай `CLAUDE.md` из этой папки: в новой версии
+  могут быть свои шаги. Потом из корня Huddle Notes:
   ```powershell
   Stop-ScheduledTask -TaskName "Huddle Notes"
   $venv = (Resolve-Path программа\.venv).Path
   Get-Process | Where-Object { $_.Path -like "$venv\*" } | Select-Object Id, Name
   ```
   Список программ из `.venv` должен быть пустым; если нет, останови их (`Stop-Process -Id <Id>`),
-  иначе установка не сможет заменить `huddle-notes.exe`. Потом:
+  иначе установка не сможет заменить `huddle-notes.exe`. Потом (`$src` — папка, где лежат
+  `программа` и `CLAUDE.md`; Windows при распаковке часто кладёт её в одноимённую папку):
   ```powershell
+  Copy-Item -Recurse -Force "$src\программа\*" программа\
+  Copy-Item -Force "$src\CLAUDE.md" .
   cd программа
   uv pip install --python .venv\Scripts\python.exe --reinstall-package huddle-notes .
   cd ..
   Start-ScheduledTask -TaskName "Huddle Notes"
   ```
   Проверь, что в `данные\logs\watch.log` появилась новая строка `watching ...\Записи`.
-- **«Заметки не получились» с `Login expired`:** вход в `claude` истёк. Владелец снова
-  выполняет `claude auth login` (шаг 5). Заметки к этому звонку придут сами: программа
-  просит их заново раз в 30 минут, до 6 часов.
+  `.env`, `данные\`, «Записи» и «Результаты» обновление не трогает.
 
 ## Правила
 

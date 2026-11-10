@@ -92,11 +92,19 @@ def test_a_reply_under_the_bots_call_becomes_a_wish_once(tmp_path):
     parent = "1794300000.000100"
     slack = FakeSlack(
         [call(parent, replies=2)],
-        {parent: [reply("1794300100.000100", "слишком длинно &amp; сухо"), reply("1794300200.000100", "")]},
+        {
+            parent: [
+                reply("1794300100.000100", "слишком длинно &amp; сухо"),
+                reply("1794300200.000100", ""),
+                reply("1794300300.000100", "и в канал", subtype="thread_broadcast"),
+                reply("1794300400.000100", "", subtype="channel_join"),
+            ]
+        },
     )
-    assert feedback(tmp_path, slack).poll() == 1
+    assert feedback(tmp_path, slack).poll() == 2
     assert Wishes(tmp_path / "пожелания.md").lines() == [
-        "- 10.11.2026, Анна (Slack, звонок 2026-11-09 11-17): слишком длинно & сухо"
+        "- 10.11.2026, Анна (Slack, звонок 2026-11-09 11-17): слишком длинно & сухо",
+        "- 10.11.2026, Анна (Slack, звонок 2026-11-09 11-17): и в канал",
     ]
     assert slack.said == [(parent, THANKS)]
     assert slack.history_calls[0]["oldest"] == f"{NOW - 14 * 86400:.6f}"
