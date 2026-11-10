@@ -24,6 +24,7 @@ from huddle_notes import models
 from huddle_notes.attribution import SpeakerAttributor
 from huddle_notes.config import ConfigError, Settings, load_env_file
 from huddle_notes.deliver import SlackDelivery
+from huddle_notes.feedback import SlackFeedback, Wishes
 from huddle_notes.media import Media
 from huddle_notes.models import download
 from huddle_notes.notes import ClaudeCodeNotes
@@ -87,6 +88,7 @@ def _processor(settings: Settings, notes: bool) -> CallProcessor:
         results_dir=settings.results_dir,
         notes=ClaudeCodeNotes(settings.claude_bin, settings.notes_model) if notes else None,
         timezone=settings.timezone,
+        wishes=Wishes(settings.wishes_path),
     )
 
 
@@ -124,11 +126,21 @@ def _watch(settings: Settings) -> int:
         log.warning("no SLACK_BOT_TOKEN: results only go to %s", settings.results_dir)
     processor = _processor(settings, notes=True)
     glossary = _glossary(settings, None)
+    feedback = None
+    if delivery is not None:
+        feedback = SlackFeedback(
+            delivery.client,
+            delivery.channel,
+            Wishes(settings.wishes_path),
+            settings.data_dir / "slack-feedback.json",
+            settings.timezone,
+        ).poll
     watcher = Watcher(
         settings.inbox,
         Journal(settings.results_dir / JOURNAL),
         lambda video: processor.process(video, glossary, {}),
         delivery,
+        feedback=feedback,
     )
     watcher.run_forever()
     return 0

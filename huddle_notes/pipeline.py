@@ -18,6 +18,7 @@ from pathlib import Path
 
 from huddle_notes.attribution import Attribution, Embedder, SpeakerAttributor
 from huddle_notes.domain import Crop, Detection, NamedBy, SpeakerGroup
+from huddle_notes.feedback import Wishes
 from huddle_notes.media import Media, MediaError
 from huddle_notes.notes import NotesError, NotesWriter
 from huddle_notes.people import PeopleLibrary
@@ -54,6 +55,7 @@ class CallProcessor:
         results_dir: Path,
         notes: NotesWriter | None = None,
         timezone: tzinfo = UTC,
+        wishes: Wishes | None = None,
     ) -> None:
         self.media = media
         self.transcriber = transcriber
@@ -65,6 +67,7 @@ class CallProcessor:
         self.results_dir = results_dir
         self.notes = notes
         self.timezone = timezone
+        self.wishes = wishes  # read for every call: a wish written meanwhile counts from the next one
 
     def process(self, video: Path, glossary: str, manual: dict[int, str], learn: bool = False) -> CallResult:
         work = self.work_root / _safe_name(video.stem)
@@ -123,17 +126,18 @@ class CallProcessor:
         return self.results_dir / name
 
     def _notes(self, work: Path, transcript: str, glossary: str) -> tuple[str | None, str | None]:
-        """Claude's notes, kept per transcript: the same transcript never costs a second request.
+        """Claude's notes, kept per transcript and wishes: the same ones never cost a second request.
         A failure leaves the call without notes rather than without a result."""
         if self.notes is None:
             return None, None
-        key = hashlib.sha256(f"{self.notes.model}\n{glossary}\n{transcript}".encode()).hexdigest()[:16]
+        wishes = self.wishes.for_prompt() if self.wishes else ""
+        key = hashlib.sha256(f"{self.notes.model}\n{glossary}\n{wishes}\n{transcript}".encode()).hexdigest()[:16]
         cached = work / f"notes-{key}.md"
         if cached.exists():
             return cached.read_text(encoding="utf-8"), None
         log.info("writing notes with %s", self.notes.model)
         try:
-            notes = self.notes.write(transcript, glossary)
+            notes = self.notes.write(transcript, glossary, wishes)
         except NotesError as e:
             log.warning("no notes: %s", e)
             return None, str(e)

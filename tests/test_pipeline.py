@@ -11,6 +11,7 @@ from conftest import FakeEmbedder, group, unit
 from huddle_notes.attribution import SpeakerAttributor
 from huddle_notes.config import Settings
 from huddle_notes.domain import Detection
+from huddle_notes.feedback import Wishes
 from huddle_notes.media import Media
 from huddle_notes.notes import NotesError
 from huddle_notes.people import PeopleLibrary
@@ -43,9 +44,11 @@ class FakeNotes:
     def __init__(self, answer: str | Exception = NOTES) -> None:
         self.answer = answer
         self.calls = 0
+        self.wishes: list[str] = []
 
-    def write(self, transcript: str, glossary: str) -> str:
+    def write(self, transcript: str, glossary: str, wishes: str = "") -> str:
         self.calls += 1
+        self.wishes.append(wishes)
         if isinstance(self.answer, Exception):
             raise self.answer
         return self.answer
@@ -118,6 +121,18 @@ def test_the_same_transcript_never_asks_claude_twice(tmp_path):
     assert notes.calls == 1
     processor.process(video, "глоссарий", {2: "Вася"})  # a renamed speaker changes the transcript
     assert notes.calls == 2
+
+
+def test_wishes_go_to_claude_and_new_ones_count_from_the_next_request(tmp_path):
+    video, processor, notes = finished_steps(tmp_path)
+    processor.wishes = Wishes(tmp_path / "data" / "пожелания.md")
+    processor.process(video, "глоссарий", {})
+    assert notes.wishes == [""]  # no file yet: no wishes
+    processor.wishes.add(datetime(2026, 11, 10, 12, 0), "Артём", "Slack, звонок 2026-11-05 10-01", "короче")
+    processor.process(video, "глоссарий", {})
+    assert notes.calls == 2 and notes.wishes[1] == "- 10.11.2026, Артём (Slack, звонок 2026-11-05 10-01): короче"
+    processor.process(video, "глоссарий", {})
+    assert notes.calls == 2  # the same transcript and wishes: the notes are reused
 
 
 def test_another_recording_from_the_same_minute_gets_its_own_file(tmp_path):
