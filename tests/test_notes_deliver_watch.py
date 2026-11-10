@@ -78,6 +78,11 @@ def test_slack_message_is_the_title_and_only_the_questions(tmp_path):
     assert "«Участник 3 — это Вася»" in text
 
 
+def test_the_title_cannot_ping_the_channel(tmp_path):
+    text = slack_text(result(tmp_path, notes="# <!channel> Планёрка & <https://x|ссылка>\n### Краткое содержание\nок"))
+    assert text == "*&lt;!channel&gt; Планёрка &amp; &lt;https://x|ссылка&gt;*"
+
+
 def test_slack_message_says_why_notes_are_missing(tmp_path):
     text = slack_text(result(tmp_path, notes=None, error="Claude did not answer"))
     assert text == (

@@ -8,6 +8,8 @@ how often, so a restart neither repeats work nor loses a call.
 What goes wrong is retried on its own: a recording that fails three times is reported in
 Slack; a message Slack refused is sent again; notes Claude could not write (a usage limit,
 say) are asked for again for a few hours, and sent when they come.
+
+Every few minutes the watcher also reads the team's feedback under its messages in Slack.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ JOURNAL = ".huddle-notes-journal.json"
 RETRY = 600  # seconds before trying a failed recording or message again
 NOTES_RETRY = 1800  # seconds before asking Claude again for notes it could not write
 NOTES_TRIES = 12  # 6 hours: longer than a subscription's usage limit lasts
+FEEDBACK_EVERY = 300  # seconds between reads of the replies under the bot's messages
 
 
 class Journal:
@@ -58,6 +61,7 @@ class Watcher:
         settle: float = 30,
         max_attempts: int = 3,
         clock: Callable[[], float] = time.time,
+        feedback: Callable[[], object] | None = None,
     ) -> None:
         self.inbox = inbox
         self.journal = journal
@@ -66,6 +70,8 @@ class Watcher:
         self.settle = settle  # seconds a file must keep its size before it counts as finished
         self.max_attempts = max_attempts
         self.clock = clock
+        self.feedback = feedback  # reads the team's replies in Slack; None without Slack
+        self._feedback_due = 0.0
         self._seen: dict[str, tuple[int, float]] = {}  # name -> (size, when that size was first seen)
 
     def run_forever(self, interval: float = 30) -> None:
@@ -75,7 +81,18 @@ class Watcher:
                 self.tick()
             except Exception:  # one bad file or a full disk must not stop the watcher for good
                 log.exception("watch cycle failed")
+            self.read_feedback()
             time.sleep(interval)
+
+    def read_feedback(self) -> None:
+        """The team's replies in Slack, every FEEDBACK_EVERY seconds; never stops the watcher."""
+        if self.feedback is None or self.clock() < self._feedback_due:
+            return
+        self._feedback_due = self.clock() + FEEDBACK_EVERY
+        try:
+            self.feedback()
+        except Exception:
+            log.exception("reading feedback failed")
 
     def tick(self) -> list[str]:
         """One pass over the folder; returns the recordings handled in it."""

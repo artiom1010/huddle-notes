@@ -13,6 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from huddle_notes import models
+from huddle_notes.feedback import WISHES
 from huddle_notes.models import ModelFile, WhisperModel
 
 GLOSSARY_NAME = re.compile(r"^[\w-]{1,64}$")  # a file name, never a path
@@ -70,6 +71,11 @@ class Settings:
     @property
     def people_dir(self) -> Path:
         return self.data_dir / "people"
+
+    @property
+    def wishes_path(self) -> Path:
+        """The team's wishes for the notes, from Slack replies and Claude Code."""
+        return self.data_dir / WISHES
 
     @property
     def work_dir(self) -> Path:

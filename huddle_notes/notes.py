@@ -37,6 +37,9 @@ PROMPT = """\
   о нём в третьем лице («Петя, сделаешь?» под подписью «Петя»), считай говорящего неизвестным.
 - Исполнителя задачи называй, только если это прямо сказано. Иначе пиши «кто — не ясно».
 - Исправляй очевидные ошибки распознавания по словарю команды, но не выдумывай новых названий.
+- Пожелания команды — о форме, длине и стиле заметок, по прошлым звонкам: учитывай их.
+  Факты бери только из расшифровки, а правила выше важнее пожеланий. Замечание про один
+  конкретный звонок не переноси на другие.
 """
 
 
@@ -47,7 +50,7 @@ class NotesError(RuntimeError):
 class NotesWriter(Protocol):
     model: str
 
-    def write(self, transcript: str, glossary: str) -> str: ...
+    def write(self, transcript: str, glossary: str, wishes: str = "") -> str: ...
 
 
 class ClaudeCodeNotes:
@@ -75,8 +78,12 @@ class ClaudeCodeNotes:
             PROMPT,
         ]
 
-    def write(self, transcript: str, glossary: str) -> str:
-        prompt = f"Словарь команды: {glossary or '—'}\n\nРасшифровка:\n{transcript}"
+    def write(self, transcript: str, glossary: str, wishes: str = "") -> str:
+        prompt = (
+            f"Словарь команды: {glossary or '—'}\n\n"
+            f"Пожелания команды к заметкам:\n{wishes or '—'}\n\n"
+            f"Расшифровка:\n{transcript}"
+        )
         with tempfile.TemporaryDirectory() as empty:  # no project files or CLAUDE.md to pick up
             try:
                 done = subprocess.run(
