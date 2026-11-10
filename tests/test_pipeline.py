@@ -40,6 +40,7 @@ class RecordedAt(Forbidden):
 
 class FakeNotes:
     model = "claude-test"
+    prompt = "instructions"
 
     def __init__(self, answer: str | Exception = NOTES) -> None:
         self.answer = answer
@@ -94,6 +95,7 @@ def finished_steps(tmp_path: Path) -> tuple[Path, CallProcessor, FakeNotes]:
         results_dir=tmp_path / "Результаты",
         notes=notes,
         timezone=ZoneInfo("Europe/Chisinau"),
+        speakers=True,
     )
     return video, processor, notes
 

@@ -34,6 +34,7 @@ class Settings:
     inbox: Path
     results_dir: Path
     glossary_name: str | None = None
+    speakers: bool = False  # name who speaks (tiles, avatars, voices); off: a transcript without names
     whisper_bin: str = "whisper-cli"
     claude_bin: str = "claude"
     hwaccel: str | None = None
@@ -59,6 +60,7 @@ class Settings:
             inbox=Path(env.get("HUDDLE_INBOX") or data.parent / "Записи").expanduser(),
             results_dir=Path(env.get("HUDDLE_RESULTS") or data.parent / "Результаты").expanduser(),
             glossary_name=env.get("HUDDLE_GLOSSARY") or None,
+            speakers=_switch("HUDDLE_SPEAKERS", env.get("HUDDLE_SPEAKERS", "off")),
             claude_bin=env.get("HUDDLE_CLAUDE_BIN", "claude"),
             slack_token=env.get("SLACK_BOT_TOKEN") or None,
             slack_channel=env.get("SLACK_CHANNEL") or None,
@@ -66,7 +68,13 @@ class Settings:
         )
 
     def describe_models(self) -> str:
-        return f"whisper {self.whisper.name}, voices {self.voice.name}, notes {self.notes_model}"
+        speakers = f"voices {self.voice.name}" if self.speakers else "speakers off"
+        return f"whisper {self.whisper.name}, {speakers}, notes {self.notes_model}"
+
+    @property
+    def models_needed(self) -> list[ModelFile]:
+        """The model files this setup uses: the voice model only when speakers are named."""
+        return [self.whisper, self.voice] if self.speakers else [self.whisper]
 
     @property
     def people_dir(self) -> Path:
@@ -109,7 +117,8 @@ class Settings:
         _require_file(self.voice_model, f"voice model {self.voice.name}")
 
     def require_transcription(self) -> None:
-        self.require_voice_model()
+        if self.speakers:
+            self.require_voice_model()
         _require_file(self.whisper_model, f"whisper model {self.whisper.name}")
         if shutil.which(self.whisper_bin) is None:
             raise ConfigError(f"{self.whisper_bin} not found: install whisper.cpp or set HUDDLE_WHISPER_BIN")
@@ -122,6 +131,13 @@ def _pick[T](setting: str, name: str, catalogue: Mapping[str, T]) -> T:
     if name not in catalogue:
         raise ConfigError(f"{setting}={name!r}: choose one of {', '.join(catalogue)}")
     return catalogue[name]
+
+
+def _switch(setting: str, value: str) -> bool:
+    on, off = {"on", "true", "1", "yes"}, {"off", "false", "0", "no", ""}
+    if value.strip().lower() in on | off:
+        return value.strip().lower() in on
+    raise ConfigError(f"{setting}={value!r}: on or off")
 
 
 def _zone(name: str) -> ZoneInfo:

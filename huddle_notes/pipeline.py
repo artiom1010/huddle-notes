@@ -1,4 +1,5 @@
-"""One recording in, one document out: the call's notes and its named transcript.
+"""One recording in, one document out: the call's notes and its transcript, with the
+speakers' names when naming is on (HUDDLE_SPEAKERS).
 
 Every step keeps its result in the recording's work folder, so a failed or repeated run
 picks up where it stopped instead of redoing the slow parts (whisper, video, Claude).
@@ -17,12 +18,12 @@ from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 
 from huddle_notes.attribution import Attribution, Embedder, SpeakerAttributor
-from huddle_notes.domain import Crop, Detection, NamedBy, SpeakerGroup
+from huddle_notes.domain import Crop, Detection, NamedBy, SpeakerGroup, Word
 from huddle_notes.feedback import Wishes
 from huddle_notes.media import Media, MediaError
 from huddle_notes.notes import NotesError, NotesWriter
 from huddle_notes.people import PeopleLibrary
-from huddle_notes.render import CallInfo, call_document, participants, report, transcript_markdown
+from huddle_notes.render import CallInfo, call_document, paragraphs, participants, report, transcript_markdown
 from huddle_notes.speakers.detector import SpeakerDetector
 from huddle_notes.transcribe import WhisperTranscriber, read_words
 
@@ -35,11 +36,12 @@ UNKNOWN_FACES = "Не опознаны"
 class CallResult:
     document: Path
     info: CallInfo
-    attribution: Attribution
+    attribution: Attribution | None  # None when speakers are not named
     report: str
     notes: str | None = None
     notes_error: str | None = None  # why there are no notes, when there are none
     unknown_faces: list[Path] = field(default_factory=list)
+    recording: str = ""  # the recording's file name, so people know which call this is
 
 
 class CallProcessor:
@@ -56,6 +58,7 @@ class CallProcessor:
         notes: NotesWriter | None = None,
         timezone: tzinfo = UTC,
         wishes: Wishes | None = None,
+        speakers: bool = False,
     ) -> None:
         self.media = media
         self.transcriber = transcriber
@@ -68,6 +71,7 @@ class CallProcessor:
         self.notes = notes
         self.timezone = timezone
         self.wishes = wishes  # read for every call: a wish written meanwhile counts from the next one
+        self.speakers = speakers  # off: no tiles, avatars or voices, a transcript without names
 
     def process(self, video: Path, glossary: str, manual: dict[int, str], learn: bool = False) -> CallResult:
         work = self.work_root / _safe_name(video.stem)
@@ -84,14 +88,36 @@ class CallProcessor:
             done = self.transcriber.transcribe(audio, work / "partial-words", glossary, work / "whisper.log")
             done.replace(words_json)
 
+        words = read_words(words_json)
+        detection, result = self._name_speakers(video, work, audio, words, manual) if self.speakers else (None, None)
+        if detection is not None and result is not None:
+            turns, duration, said = result.turns(), detection.frames / detection.fps, report(result, len(words))
+        else:
+            turns, duration = paragraphs(words), self._duration(video, words)
+            said = f"words {len(words)}; speakers not named (HUDDLE_SPEAKERS=off)"
+        info = CallInfo(self._started(video, duration), duration, participants(turns))
+        notes, notes_error = self._notes(work, transcript_markdown(turns), glossary)
+
+        self.results_dir.mkdir(parents=True, exist_ok=True)
+        document = self._document(work, info.file_name)
+        self._atomic(document, lambda tmp: _write_text(tmp, call_document(info, turns, notes)))
+        faces: list[Path] = []
+        if detection is not None and result is not None:
+            faces = self._save_unknown_faces(detection, result, self.results_dir / UNKNOWN_FACES / document.stem)
+            if learn:
+                self._learn(detection, result)
+        return CallResult(document, info, result, said, notes, notes_error, faces, video.name)
+
+    def _name_speakers(
+        self, video: Path, work: Path, audio: Path, words: list[Word], manual: dict[int, str]
+    ) -> tuple[Detection, Attribution]:
+        """Who said each word: the lit tiles on video, their avatars, the voices."""
         speakers_json = work / "speakers.json"
         if not speakers_json.exists():
             log.info("%s: finding speakers on video", video.name)
-            detection = self.detector.detect(video)
-            self._atomic(speakers_json, lambda tmp: _write_json(tmp, detection.to_dict()))
+            found = self.detector.detect(video)
+            self._atomic(speakers_json, lambda tmp: _write_json(tmp, found.to_dict()))
         detection = Detection.from_dict(json.loads(speakers_json.read_text(encoding="utf-8")))
-
-        words = read_words(words_json)
         result = self.attributor.attribute(
             words,
             detection.groups,
@@ -100,17 +126,14 @@ class CallProcessor:
             self.library.voiceprints(),
             manual,
         )
-        turns = result.turns()
-        info = CallInfo(self._started(video, detection), detection.frames / detection.fps, participants(turns))
-        notes, notes_error = self._notes(work, transcript_markdown(turns), glossary)
+        return detection, result
 
-        self.results_dir.mkdir(parents=True, exist_ok=True)
-        document = self._document(work, info.file_name)
-        self._atomic(document, lambda tmp: _write_text(tmp, call_document(info, turns, notes)))
-        faces = self._save_unknown_faces(detection, result, self.results_dir / UNKNOWN_FACES / document.stem)
-        if learn:
-            self._learn(detection, result)
-        return CallResult(document, info, result, report(result, len(words)), notes, notes_error, faces)
+    def _duration(self, video: Path, words: list[Word]) -> float:
+        """The recording's length; the last word's end when the file can't say."""
+        try:
+            return self.media.duration(video)
+        except (MediaError, ValueError):
+            return words[-1].end if words else 0.0
 
     def _document(self, work: Path, name: str) -> Path:
         """The call's file in the results. A recording keeps the file it got the first time;
@@ -126,12 +149,14 @@ class CallProcessor:
         return self.results_dir / name
 
     def _notes(self, work: Path, transcript: str, glossary: str) -> tuple[str | None, str | None]:
-        """Claude's notes, kept per transcript and wishes: the same ones never cost a second request.
+        """Claude's notes, kept per request (model, instructions, glossary, wishes, transcript):
+        the same request never costs a second one.
         A failure leaves the call without notes rather than without a result."""
         if self.notes is None:
             return None, None
         wishes = self.wishes.for_prompt() if self.wishes else ""
-        key = hashlib.sha256(f"{self.notes.model}\n{glossary}\n{wishes}\n{transcript}".encode()).hexdigest()[:16]
+        given = f"{self.notes.model}\n{self.notes.prompt}\n{glossary}\n{wishes}\n{transcript}"
+        key = hashlib.sha256(given.encode()).hexdigest()[:16]
         cached = work / f"notes-{key}.md"
         if cached.exists():
             return cached.read_text(encoding="utf-8"), None
@@ -144,7 +169,7 @@ class CallProcessor:
         self._atomic(cached, lambda tmp: _write_text(tmp, notes))
         return notes, None
 
-    def _started(self, video: Path, detection: Detection) -> datetime:
+    def _started(self, video: Path, duration: float) -> datetime:
         """When the call started: from the recording's own metadata, else the file's time
         (written when recording stopped) minus its length."""
         try:
@@ -153,7 +178,7 @@ class CallProcessor:
             started = None
         if started is None:
             ended = datetime.fromtimestamp(video.stat().st_mtime, UTC)
-            started = ended - timedelta(seconds=detection.frames / detection.fps)
+            started = ended - timedelta(seconds=duration)
         return started.astimezone(self.timezone)
 
     def _save_unknown_faces(self, detection: Detection, result: Attribution, folder: Path) -> list[Path]:
