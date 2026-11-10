@@ -82,7 +82,7 @@ def _processor(settings: Settings, notes: bool) -> CallProcessor:
         transcriber=WhisperTranscriber(settings.whisper_bin, settings.whisper_model, settings.whisper.dtw_preset),
         detector=SpeakerDetector(media),
         attributor=SpeakerAttributor(),
-        library=PeopleLibrary.load(settings.people_dir),
+        library=_library(settings),
         embedder_for=lambda wav: VoiceEmbedder(wav, settings.voice_model),
         work_root=settings.work_dir,
         results_dir=settings.results_dir,
@@ -91,6 +91,14 @@ def _processor(settings: Settings, notes: bool) -> CallProcessor:
         wishes=Wishes(settings.wishes_path),
         speakers=settings.speakers,
     )
+
+
+def _library(settings: Settings) -> PeopleLibrary:
+    """The team's faces and voices; with names off they are not read at all, even if an old
+    base is on disk."""
+    if settings.speakers:
+        return PeopleLibrary.load(settings.people_dir)
+    return PeopleLibrary(settings.people_dir, {}, {})
 
 
 def _delivery(settings: Settings) -> SlackDelivery:
@@ -167,6 +175,9 @@ def _models(settings: Settings, args: argparse.Namespace) -> int:
 
 
 def _regress(settings: Settings, args: argparse.Namespace) -> int:
+    if not settings.speakers:  # the check is about names; without them nothing can change
+        print("HUDDLE_SPEAKERS=off: speakers are not named, nothing to check")
+        return 0
     settings.require_voice_model()
     results = run_regression(
         Path(args.dir),

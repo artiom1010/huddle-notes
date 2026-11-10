@@ -6,12 +6,13 @@ from pathlib import Path
 
 import pytest
 from test_notes_deliver_watch import result
-from test_pipeline import NOTES, FakeNotes, Forbidden, whisper_json
+from test_pipeline import FakeNotes, Forbidden, whisper_json
 
 from huddle_notes import cli
 from huddle_notes.config import ConfigError, Settings
 from huddle_notes.deliver import slack_text
 from huddle_notes.domain import Word
+from huddle_notes.media import MediaError
 from huddle_notes.notes import ClaudeCodeNotes, prompt
 from huddle_notes.pipeline import CallProcessor
 from huddle_notes.render import CallInfo, call_document, paragraphs
@@ -126,11 +127,58 @@ def test_without_speakers_the_voice_model_is_not_required(tmp_path, monkeypatch)
         Settings.from_env({"HUDDLE_DATA_DIR": str(tmp_path), "HUDDLE_SPEAKERS": "on"}).require_transcription()
 
 
-def test_naming_by_hand_needs_speakers_on(tmp_path, monkeypatch):
+def test_naming_by_hand_needs_speakers_on(tmp_path, monkeypatch, caplog):
     for key in ("HUDDLE_SPEAKERS", "SLACK_BOT_TOKEN"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("HUDDLE_DATA_DIR", str(tmp_path))
     video = tmp_path / "call.mkv"
     video.write_bytes(b"")
-    assert cli.main(["--env", str(tmp_path / "none.env"), "process", str(video), "--names", "1=Вася"]) == 2
-    assert NOTES  # the shared fixtures stay importable
+    for flag in (["--names", "1=Вася"], ["--learn"]):
+        caplog.clear()
+        assert cli.main(["--env", str(tmp_path / "none.env"), "process", str(video), *flag]) == 2
+        assert "HUDDLE_SPEAKERS=on" in caplog.text  # stopped by this check, not by a missing model
+
+
+def ready(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **env: str) -> Settings:
+    """Settings whose tools and whisper model are in place."""
+    monkeypatch.setattr("shutil.which", lambda tool: f"/bin/{tool}")
+    s = Settings.from_env({"HUDDLE_DATA_DIR": str(tmp_path), **env})
+    s.models_dir.mkdir(parents=True, exist_ok=True)
+    s.whisper_model.write_bytes(b"model")
+    return s
+
+
+def test_the_watcher_and_process_get_the_switch(tmp_path, monkeypatch):
+    s = ready(tmp_path, monkeypatch)
+    (tmp_path / "people").mkdir()
+    (tmp_path / "people" / "avatars.json").write_text("not json: never read with names off", encoding="utf-8")
+    p = cli._processor(s, notes=True)
+    assert p.speakers is False and p.library.avatars == {} and p.library.voices == {}
+    assert p.notes is not None and p.notes.prompt == prompt(named=False)
+
+
+def test_without_speakers_there_is_nothing_to_regress(tmp_path, monkeypatch, capsys):
+    s = ready(tmp_path, monkeypatch)
+    assert cli._regress(s, None) == 0  # type: ignore[arg-type]
+    assert "nothing to check" in capsys.readouterr().out
+
+
+class MediaWithoutLength(MediaWithLength):
+    def duration(self, video: Path) -> float:
+        raise MediaError("ffprobe failed")
+
+
+def test_a_recording_without_a_known_length_takes_its_last_word(tmp_path):
+    video, processor, _ = transcribed(tmp_path)
+    processor.media = MediaWithoutLength()  # type: ignore[assignment]
+    assert processor.process(video, "", {}).info.duration == 7.6
+
+
+def test_other_instructions_mean_other_notes(tmp_path):
+    video, processor, notes = transcribed(tmp_path)
+    processor.process(video, "", {})
+    processor.process(video, "", {})
+    assert notes.calls == 1
+    notes.prompt = "other instructions"
+    processor.process(video, "", {})
+    assert notes.calls == 2

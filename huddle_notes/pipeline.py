@@ -58,7 +58,7 @@ class CallProcessor:
         notes: NotesWriter | None = None,
         timezone: tzinfo = UTC,
         wishes: Wishes | None = None,
-        speakers: bool = True,
+        speakers: bool = False,
     ) -> None:
         self.media = media
         self.transcriber = transcriber

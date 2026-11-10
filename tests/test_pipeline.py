@@ -95,6 +95,7 @@ def finished_steps(tmp_path: Path) -> tuple[Path, CallProcessor, FakeNotes]:
         results_dir=tmp_path / "Результаты",
         notes=notes,
         timezone=ZoneInfo("Europe/Chisinau"),
+        speakers=True,
     )
     return video, processor, notes
 
