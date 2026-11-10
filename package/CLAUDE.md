@@ -20,7 +20,13 @@ Huddle Notes/
 
 ## Установка (один раз, Windows, PowerShell)
 
-Все команды — из корня этой папки. После каждой установки через winget открой новый терминал.
+Все команды — из корня этой папки. Каждая команда, которую ты запускаешь из приложения Claude,
+получает PATH, каким он был при запуске приложения, поэтому только что установленную программу
+она может не видеть. Тогда обнови PATH в начале команды (между командами он не сохраняется)
+или попроси владельца полностью выйти из приложения Claude и открыть его снова:
+```powershell
+$env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+```
 
 1. Инструменты:
    ```powershell
@@ -49,10 +55,45 @@ Huddle Notes/
    программа\.venv\Scripts\huddle-notes.exe models
    ```
    У выбранных моделей должно стоять `downloaded`.
-5. Claude Code должен быть залогинен (подписка владельца). Проверь:
+5. Claude Code для терминала: через команду `claude` программа пишет заметки. Приложение
+   Claude эту команду не ставит. По имени твой терминал её может не найти (см. выше про PATH),
+   поэтому вызывай её полным путём `& "$env:USERPROFILE\.local\bin\claude.exe"`.
+   Проверь, стоит ли она: `& "$env:USERPROFILE\.local\bin\claude.exe" --version` печатает версию.
+   Если нет, поставь:
    ```powershell
-   claude -p "Ответь одним словом: работает" --tools ""
+   irm https://claude.ai/install.ps1 | iex
    ```
+   Скачивается около 350 МБ без индикатора: дай команде до 10 минут. При ошибке
+   `SSL/TLS secure channel` добавь в начало команды
+   `[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;`.
+   Установщик кладёт `claude.exe` в `%USERPROFILE%\.local\bin`, но эту папку в PATH сам не
+   добавляет (пишет об этом в `Setup notes`). Добавь её в PATH пользователя, чтобы владелец мог
+   набирать просто `claude`:
+   ```powershell
+   $p = [Environment]::GetEnvironmentVariable('PATH', 'User'); [Environment]::SetEnvironmentVariable('PATH', "$p;$env:USERPROFILE\.local\bin", 'User')
+   ```
+   Программе PATH не нужен: она сама ищет `claude` в этой папке.
+
+   **Ключи API.** Если в Windows или в `.env` задан `ANTHROPIC_API_KEY` или
+   `ANTHROPIC_AUTH_TOKEN`, `claude -p` возьмёт его вместо подписки. Приложение Claude убирает
+   эти переменные из твоих команд, поэтому смотри прямо в настройки Windows и в `.env`
+   (печатается только True или False, не сам ключ):
+   ```powershell
+   foreach ($n in 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN') { foreach ($t in 'User', 'Machine') { "$n $t " + [bool][Environment]::GetEnvironmentVariable($n, $t) } }
+   [bool](Select-String -Path .env -Pattern '^\s*ANTHROPIC_(API_KEY|AUTH_TOKEN)\s*=\s*\S' -Quiet)
+   ```
+   Везде должно быть False. Если где-то True, скажи владельцу: пусть удалит переменную в
+   переменных среды Windows (поиск в Пуске: «переменные среды») или строку в `.env`, потом
+   выйдет из Windows и войдёт снова. Сам ничего не удаляй.
+
+   **Вход.** Владелец входит сам, ты за него не войдёшь. Попроси его открыть PowerShell и
+   выполнить `& "$env:USERPROFILE\.local\bin\claude.exe" auth login`: откроется браузер, там
+   войти аккаунтом с платной подпиской Claude. Дождись, пока он скажет, что вошёл, и проверь:
+   ```powershell
+   & "$env:USERPROFILE\.local\bin\claude.exe" auth status --text
+   & "$env:USERPROFILE\.local\bin\claude.exe" -p "Reply with one word: works" --model claude-opus-5-5 --tools=
+   ```
+   Пустой список инструментов пиши как `--tools=`: PowerShell 5.1 выбрасывает из команды `""`.
 6. Slack: владелец вписывает в `.env` `SLACK_BOT_TOKEN` (сам, не через чат). `SLACK_CHANNEL`
    и `SLACK_NOTIFY_USER` уже заполнены. Бот `@huddle_notes` должен быть в канале.
 7. Автозапуск наблюдателя при входе в Windows:
@@ -74,8 +115,9 @@ Huddle Notes/
 ## Проверка
 
 Положи в «Записи» короткую запись хадла (5–10 минут). Через минуту в логе должно быть
-`processing ...`, потом в «Результатах» появится файл, а в Slack — сообщение. Покажи
-владельцу время обработки из лога и спроси, правильно ли расставлены имена.
+`processing ...`, потом в «Результатах» появится файл, а в Slack — сообщение. В нём не должно
+быть «Заметки не получились». Покажи владельцу время обработки из лога и спроси, правильно ли
+расставлены имена.
 
 ## Что делать по просьбам владельца
 
@@ -91,6 +133,9 @@ Huddle Notes/
   «Результатов», отвечай со временем из расшифровки. Помни, что расшифровка бывает неточной;
   «?» значит, что говорящий не определён.
 - **Что-то не работает:** смотри `данные\logs\watch.log` и журнал в «Результатах».
+- **«Заметки не получились» с `Login expired`:** вход в `claude` истёк. Владелец снова
+  выполняет `claude auth login` (шаг 5). Заметки к этому звонку придут сами: программа
+  просит их заново раз в 30 минут, до 6 часов.
 
 ## Правила
 
