@@ -25,6 +25,8 @@ def slack_text(result: CallResult, mention: str | None = None) -> str:
     """Short on purpose: the call's title, then only what needs the reader. Everything else
     is in the attached file."""
     title = (split_title(result.notes)[0] if result.notes else None) or f"Звонок {result.info.when}"
+    # Claude's words, not markup: no <!channel> or link can slip in through the title
+    title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     lines = [f"{f'<@{mention}> ' if mention else ''}*{title}*"]
     if not result.notes:
         lines.append(

@@ -45,9 +45,7 @@ class Wishes:
 
     def lines(self) -> list[str]:
         """The newest wishes, oldest first."""
-        if not self.path.is_file():
-            return []
-        found = [line.strip() for line in self.path.read_text(encoding="utf-8-sig").splitlines()]
+        found = [line.strip() for line in self._read().splitlines()]
         return [line for line in found if line.startswith("- ") and len(line) > 2][-self.keep :]
 
     def for_prompt(self) -> str:
@@ -57,19 +55,36 @@ class Wishes:
         """One wish as one line: who, when, from where, and what they want."""
         line = f"- {when:%d.%m.%Y}, {_one_line(who, 80)} ({where}): {_one_line(text, LONGEST)}\n"
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        old = self.path.read_text(encoding="utf-8-sig") if self.path.is_file() else HEADER
-        if old and not old.endswith("\n"):
+        old = self._read() or HEADER  # rewritten as UTF-8, whatever it was saved as
+        if not old.endswith("\n"):
             old += "\n"
         tmp = self.path.with_name(f"partial-{self.path.name}")
         tmp.write_text(old + line, encoding="utf-8")
         tmp.replace(self.path)
         return line.strip()
 
+    def _read(self) -> str:
+        """The file's text; "" when there is none. A file saved by hand in the Windows
+        code page (Notepad's ANSI) is still read: wishes must never stop a call's notes."""
+        try:
+            raw = self.path.read_bytes()
+        except FileNotFoundError:
+            return ""
+        except OSError as e:
+            log.warning("feedback: wishes not read: %s", e)
+            return ""
+        try:
+            return raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            log.warning("feedback: %s is not UTF-8, read as cp1251", self.path.name)
+            return raw.decode("cp1251", errors="replace")
+
 
 ASK = "Что не так с заметками? Напишите здесь в ответ — учту со следующего звонка."
 THANKS = "Записал в пожелания к заметкам, учту со следующего звонка."
 DAYS = 14  # how far back replies under the bot's messages are read
 REPLY = (None, "thread_broadcast")  # a person's reply, also one sent to the channel too
+UPLOAD = (None, "file_share")  # the bot's call message: its file upload
 
 
 class SlackFeedback:
@@ -111,6 +126,7 @@ class SlackFeedback:
     def _poll(self) -> int:
         me = self._bot_user()
         since = self.clock() - DAYS * 86400
+        first = not self.state_path.is_file()
         state = self._load()
         # threads older than the window are never read again: forget them
         state["seen"] = {ts: last for ts, last in state["seen"].items() if float(ts) >= since}
@@ -119,10 +135,14 @@ class SlackFeedback:
         history = self.client.conversations_history(channel=self.channel, oldest=oldest, limit=200)
         written = 0
         for message in history.get("messages", []):
-            if message.get("user") != me or not message.get("files") or message.get("subtype"):
+            if message.get("user") != me or not message.get("files") or message.get("subtype") not in UPLOAD:
                 continue  # not a call the bot sent: a join, a failure report, another app
             ts = message["ts"]
-            if message.get("reply_count"):
+            if first:  # what was said before the bot read feedback is not feedback to it
+                state["seen"][ts] = message.get("latest_reply") or self._newest_reply(message)
+                if _disliked(message):
+                    state["asked"].append(ts)
+            elif message.get("reply_count"):
                 written += self._read_thread(message, me, state)
             elif _disliked(message) and ts not in state["asked"]:
                 state["asked"].append(ts)
@@ -134,31 +154,43 @@ class SlackFeedback:
     def _read_thread(self, message: dict[str, Any], me: str, state: dict[str, Any]) -> int:
         ts = message["ts"]
         seen = state["seen"].get(ts, ts)
+        if float(message.get("latest_reply") or "inf") <= float(seen):
+            return 0  # nothing new in this thread: no request
         replies = self.client.conversations_replies(channel=self.channel, ts=ts, oldest=seen, limit=200)
-        new = [r for r in replies.get("messages", []) if float(r["ts"]) > float(seen)]
+        new = sorted(
+            (r for r in replies.get("messages", []) if float(r["ts"]) > float(seen)), key=lambda r: float(r["ts"])
+        )
         if not new:
             return 0
         call = Path(message["files"][0].get("name") or message["files"][0].get("title") or "").stem
         written = 0
         for r in new:
             text = r.get("text", "").strip()
-            if r.get("user") == me or r.get("bot_id") or r.get("subtype") not in REPLY or not text:
-                continue  # the bot's own answers, other apps, joins, empty messages
-            when = datetime.fromtimestamp(float(r["ts"]), UTC).astimezone(self.timezone)
-            line = self.wishes.add(when, self._name(r.get("user", "")), f"Slack, звонок {call}", html.unescape(text))
-            log.info("wish from Slack: %s", line)
-            written += 1
-        state["seen"][ts] = max((r["ts"] for r in new), key=float)
-        self._save(state)  # before answering: a failed answer must not write the wish twice
-        if written:
+            if r.get("user") != me and not r.get("bot_id") and r.get("subtype") in REPLY and text:
+                when = datetime.fromtimestamp(float(r["ts"]), UTC).astimezone(self.timezone)
+                who = self._name(r.get("user", ""))
+                line = self.wishes.add(when, who, f"Slack, звонок {call}", html.unescape(text))
+                log.info("feedback: wish from Slack: %s", line)
+                written += 1
+            # the bot's own answers, other apps, joins and empty messages are only marked read;
+            # saved after each reply, so a stop halfway never writes a wish twice
+            state["seen"][ts] = r["ts"]
+            self._save(state)
+        if written:  # after saving: a failed answer must not write the wish twice
             self._say(ts, THANKS)
         return written
+
+    def _newest_reply(self, message: dict[str, Any]) -> str:
+        if not message.get("reply_count"):
+            return str(message["ts"])
+        replies = self.client.conversations_replies(channel=self.channel, ts=message["ts"], limit=200)
+        return str(max((r["ts"] for r in replies.get("messages", [])), key=float, default=message["ts"]))
 
     def _say(self, thread: str, text: str) -> None:
         try:
             self.client.chat_postMessage(channel=self.channel, thread_ts=thread, text=text)
         except SlackApiError as e:  # the wish is kept either way
-            log.warning("no answer in the thread: Slack: %s", e.response.get("error", e))
+            log.warning("feedback: no answer in the thread: Slack: %s", e.response.get("error", e))
 
     def _bot_user(self) -> str:
         if self._me is None:

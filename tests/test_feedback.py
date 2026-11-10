@@ -59,7 +59,7 @@ class FakeSlack:
         self.history_calls.append(kw)
         return {"messages": self.messages}
 
-    def conversations_replies(self, channel: str, ts: str, oldest: str, limit: int) -> dict[str, Any]:
+    def conversations_replies(self, channel: str, ts: str, limit: int, oldest: str = "0") -> dict[str, Any]:
         # like Slack: the parent first, then replies newer than oldest
         parent = next(m for m in self.messages if m["ts"] == ts)
         return {"messages": [parent] + [r for r in self.threads.get(ts, []) if float(r["ts"]) > float(oldest)]}
@@ -78,7 +78,11 @@ class FakeSlack:
                 m["reply_count"] = m.get("reply_count", 0) + 1
 
 
-def feedback(tmp_path: Path, slack: FakeSlack) -> SlackFeedback:
+def feedback(tmp_path: Path, slack: FakeSlack, deployed: bool = True) -> SlackFeedback:
+    """The reader; deployed: it has read the channel before, so new replies are feedback."""
+    state = tmp_path / "slack-feedback.json"
+    if deployed and not state.exists():
+        state.write_text('{"seen": {}, "asked": []}', encoding="utf-8")
     return SlackFeedback(
         slack, "C0CHANNEL", Wishes(tmp_path / "пожелания.md"), tmp_path / "slack-feedback.json", clock=lambda: NOW
     )
@@ -149,6 +153,41 @@ def test_a_thumbs_down_without_words_gets_one_question(tmp_path):
     assert slack.said == [(parent, ASK)]  # asked once, also after a restart
     slack.threads[parent].append(reply("1794309000.000100", "нет задач"))
     assert fb.poll() == 1 and slack.said[-1] == (parent, THANKS)
+
+
+def test_what_was_said_before_the_first_read_is_not_feedback(tmp_path):
+    parent, other = "1794300000.000100", "1794301000.000100"
+    slack = FakeSlack(
+        [call(parent, replies=1), call(other, reactions=["-1"])],
+        {parent: [reply("1794300100.000100", "обсуждали задачу")]},
+    )
+    assert feedback(tmp_path, slack, deployed=False).poll() == 0
+    assert slack.said == [] and not (tmp_path / "пожелания.md").exists()
+    slack.threads[parent].append(reply("1794309000.000100", "короче"))
+    slack.messages[0]["latest_reply"] = "1794309000.000100"
+    assert feedback(tmp_path, slack).poll() == 1
+    assert slack.said == [(parent, THANKS)]  # no question under the old 👎
+
+
+def test_a_thread_with_nothing_new_is_not_requested(tmp_path):
+    parent = "1794300000.000100"
+    slack = FakeSlack([call(parent, replies=1, latest_reply="1794300100.000100")], {parent: []})
+    slack.conversations_replies = None  # type: ignore[assignment, method-assign]
+    state = tmp_path / "slack-feedback.json"
+    state.write_text('{"seen": {"1794300000.000100": "1794300100.000100"}, "asked": []}', encoding="utf-8")
+    assert feedback(tmp_path, slack).poll() == 0
+
+
+def test_a_wishes_file_saved_in_the_windows_code_page_is_still_read(tmp_path):
+    path = tmp_path / "пожелания.md"
+    path.write_bytes("- 10.11.2026, Тони (Claude Code): короче\n".encode("cp1251"))
+    wishes = Wishes(path)
+    assert wishes.lines() == ["- 10.11.2026, Тони (Claude Code): короче"]
+    wishes.add(datetime(2026, 11, 11), "Тони", "Claude Code", "с датами")
+    assert path.read_text(encoding="utf-8").splitlines()[-2:] == [  # rewritten as UTF-8
+        "- 10.11.2026, Тони (Claude Code): короче",
+        "- 11.11.2026, Тони (Claude Code): с датами",
+    ]
 
 
 def test_slack_trouble_is_logged_not_raised(tmp_path, caplog):
