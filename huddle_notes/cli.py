@@ -86,9 +86,10 @@ def _processor(settings: Settings, notes: bool) -> CallProcessor:
         embedder_for=lambda wav: VoiceEmbedder(wav, settings.voice_model),
         work_root=settings.work_dir,
         results_dir=settings.results_dir,
-        notes=ClaudeCodeNotes(settings.claude_bin, settings.notes_model) if notes else None,
+        notes=ClaudeCodeNotes(settings.claude_bin, settings.notes_model, named=settings.speakers) if notes else None,
         timezone=settings.timezone,
         wishes=Wishes(settings.wishes_path),
+        speakers=settings.speakers,
     )
 
 
@@ -106,6 +107,8 @@ def _process(settings: Settings, args: argparse.Namespace) -> int:
     video = Path(args.video).resolve()
     if not video.is_file():
         raise ConfigError(f"no recording {video}")
+    if (args.names or args.learn) and not settings.speakers:
+        raise ConfigError("--names and --learn need speakers named: HUDDLE_SPEAKERS=on")
     delivery = _delivery(settings) if args.notify else None
     result = _processor(settings, notes=not args.no_notes).process(
         video, _glossary(settings, args.glossary), _names(args.names), learn=args.learn
@@ -149,7 +152,7 @@ def _watch(settings: Settings) -> int:
 def _models(settings: Settings, args: argparse.Namespace) -> int:
     """The catalogue, what the settings chose, and what is downloaded."""
     if args.action == "download":
-        for model in (settings.whisper, settings.voice):
+        for model in settings.models_needed:
             download(model, settings.models_dir)
     print(f"chosen: {settings.describe_models()}")
     for setting, catalogue in (("HUDDLE_WHISPER_MODEL", models.WHISPER), ("HUDDLE_VOICE_MODEL", models.VOICE)):

@@ -3,8 +3,9 @@
 #
 #   scripts/make-package.sh <team data folder> <output folder> <Slack channel ID> <Slack member ID>
 #
-# The team data folder holds people/ (faces, voices) and glossaries/. They are biometric
-# and private: hand the zip to its owner directly, never through a shared channel.
+# From the team data folder only glossaries/ is taken. Faces and voices (people/) stay out:
+# speakers are not named by default (HUDDLE_SPEAKERS=off), and they are biometric data.
+# The zip still holds the team's Slack IDs and glossaries: give it to its owner, not to a channel.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -12,12 +13,12 @@ data="${1:?team data folder}"
 out="${2:?output folder}/Huddle Notes"
 channel="${3:?Slack channel ID}"
 member="${4:?Slack member ID}"
-[[ -d "$data/people" && -d "$data/glossaries" ]] || { echo "$data needs people/ and glossaries/" >&2; exit 1; }
+[[ -d "$data/glossaries" ]] || { echo "$data needs glossaries/" >&2; exit 1; }
 [[ ! -e "$out" ]] || { echo "$out already exists" >&2; exit 1; }
 
 mkdir -p "$out/программа" "$out/данные/logs" "$out/Записи" "$out/Результаты" "$out/whisper"
 git archive HEAD | tar -x -C "$out/программа"
-cp -R "$data/people" "$data/glossaries" "$out/данные/"
+cp -R "$data/glossaries" "$out/данные/"
 cp package/CLAUDE.md "$out/CLAUDE.md"
 sed -e "s/{{SLACK_CHANNEL}}/$channel/" -e "s/{{SLACK_NOTIFY_USER}}/$member/" package/env.template > "$out/.env"
 

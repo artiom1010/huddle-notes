@@ -22,12 +22,12 @@ class Delivery(Protocol):
 
 
 def slack_text(result: CallResult, mention: str | None = None) -> str:
-    """Short on purpose: the call's title, then only what needs the reader. Everything else
-    is in the attached file."""
+    """Short on purpose: the call's title, the recording it came from, then only what needs
+    the reader. Everything else is in the attached file."""
     title = (split_title(result.notes)[0] if result.notes else None) or f"Звонок {result.info.when}"
-    # Claude's words, not markup: no <!channel> or link can slip in through the title
-    title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    lines = [f"{f'<@{mention}> ' if mention else ''}*{title}*"]
+    lines = [f"{f'<@{mention}> ' if mention else ''}*{_plain(title)}*"]
+    if result.recording:
+        lines.append(f"Запись: {_plain(result.recording)}")
     if not result.notes:
         lines.append(
             f"Заметки не получились ({result.notes_error or 'причина неизвестна'}), в файле только расшифровка."
@@ -39,6 +39,11 @@ def slack_text(result: CallResult, mention: str | None = None) -> str:
             f"в папке Huddle Notes, например: «{result.unknown_faces[0].stem} — это Вася»."
         )
     return "\n".join(lines)
+
+
+def _plain(text: str) -> str:
+    """Words, not Slack markup: no <!channel> or link can slip in through a title or file name."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 class SlackDelivery:

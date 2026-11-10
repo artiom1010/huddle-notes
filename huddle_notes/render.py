@@ -1,5 +1,5 @@
-"""Text for people: the one document per call (notes, then the named transcript) and a
-short report on how names were decided."""
+"""Text for people: the one document per call (notes, then the transcript) and a short
+report on how names were decided, when they are."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from huddle_notes.attribution import Attribution
-from huddle_notes.domain import Basis, NamedBy, Turn
+from huddle_notes.domain import Basis, NamedBy, Turn, Word
 from huddle_notes.notes import split_title
 
 MONTHS = (
@@ -43,7 +43,8 @@ class CallInfo:
 
     @property
     def byline(self) -> str:
-        return f"{self.when} · {self.minutes} мин · Участники: {', '.join(self.participants)}"
+        who = f" · Участники: {', '.join(self.participants)}" if self.participants else ""
+        return f"{self.when} · {self.minutes} мин{who}"
 
     @property
     def file_name(self) -> str:
@@ -55,7 +56,31 @@ def hms(sec: float) -> str:
 
 
 def transcript_markdown(turns: list[Turn]) -> str:
-    return "".join(f"[{hms(t.start)}] **{t.who}:** {t.text}\n\n" for t in turns)
+    """One paragraph per turn; the speaker's name in front when there is one."""
+    return "".join(f"[{hms(t.start)}] {f'**{t.who}:** ' if t.who else ''}{t.text}\n\n" for t in turns)
+
+
+SENTENCE_END = (".", "?", "!", "…")
+
+
+def paragraphs(words: list[Word], pause: float = 2.0, longest: float = 45.0) -> list[Turn]:
+    """A transcript without names: a new paragraph after a pause, and once it runs past
+    `longest` seconds, at the next end of a sentence (or at twice that, if none comes),
+    so a long stretch still gets times to find it by and no sentence is cut in two."""
+    turns: list[Turn] = []
+    start = end = 0.0
+    for w in words:
+        if turns:
+            ran = w.end - start
+            full_stop = turns[-1].text.endswith(SENTENCE_END)
+            if w.start - end < pause and (ran <= longest or (not full_stop and ran <= 2 * longest)):
+                turns[-1] = Turn(start, "", f"{turns[-1].text} {w.text}")
+                end = w.end
+                continue
+        start = w.start
+        turns.append(Turn(start, "", w.text))
+        end = w.end
+    return turns
 
 
 def report(result: Attribution, words: int) -> str:
@@ -84,9 +109,9 @@ def call_document(info: CallInfo, turns: list[Turn], notes: str | None = None) -
 
 
 def participants(turns: list[Turn]) -> list[str]:
-    """Everyone named in the transcript, in order of first word; '?' is nobody."""
+    """Everyone named in the transcript, in order of first word; '?' and no name are nobody."""
     seen: list[str] = []
     for t in turns:
-        if not t.who.startswith("?") and t.who not in seen:
+        if t.who and not t.who.startswith("?") and t.who not in seen:
             seen.append(t.who)
     return seen

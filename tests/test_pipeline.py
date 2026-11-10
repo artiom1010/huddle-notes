@@ -40,6 +40,7 @@ class RecordedAt(Forbidden):
 
 class FakeNotes:
     model = "claude-test"
+    prompt = "instructions"
 
     def __init__(self, answer: str | Exception = NOTES) -> None:
         self.answer = answer
