@@ -29,6 +29,7 @@ class Settings:
     data_dir: Path
     models_dir: Path
     whisper: WhisperModel
+    vad: ModelFile | None  # None: whisper hears the whole recording, silence too
     voice: ModelFile
     notes_model: str
     timezone: ZoneInfo
@@ -53,6 +54,7 @@ class Settings:
             data_dir=data,
             models_dir=Path(env.get("HUDDLE_MODELS_DIR") or data / "models").expanduser(),
             whisper=_pick("HUDDLE_WHISPER_MODEL", env.get("HUDDLE_WHISPER_MODEL", "large-v3-turbo"), models.WHISPER),
+            vad=_vad(env.get("HUDDLE_VAD_MODEL", "")),
             voice=_pick("HUDDLE_VOICE_MODEL", env.get("HUDDLE_VOICE_MODEL", "wespeaker-resnet34"), models.VOICE),
             notes_model=notes,
             whisper_bin=env.get("HUDDLE_WHISPER_BIN", "whisper-cli"),
@@ -72,12 +74,14 @@ class Settings:
 
     def describe_models(self) -> str:
         speakers = f"voices {self.voice.name}" if self.speakers else "speakers off"
-        return f"whisper {self.whisper.name}, language {self.whisper_language}, {speakers}, notes {self.notes_model}"
+        vad = f"vad {self.vad.name}" if self.vad else "vad off"
+        whisper = f"whisper {self.whisper.name}, language {self.whisper_language}, {vad}"
+        return f"{whisper}, {speakers}, notes {self.notes_model}"
 
     @property
     def models_needed(self) -> list[ModelFile]:
         """The model files this setup uses: the voice model only when speakers are named."""
-        return [self.whisper, self.voice] if self.speakers else [self.whisper]
+        return [self.whisper, *([self.vad] if self.vad else []), *([self.voice] if self.speakers else [])]
 
     @property
     def people_dir(self) -> Path:
@@ -102,6 +106,10 @@ class Settings:
     @property
     def whisper_model(self) -> Path:
         return self.models_dir / self.whisper.file
+
+    @property
+    def vad_model(self) -> Path | None:
+        return self.models_dir / self.vad.file if self.vad else None
 
     @property
     def voice_model(self) -> Path:
@@ -141,6 +149,14 @@ def _switch(setting: str, value: str) -> bool:
     if value.strip().lower() in on | off:
         return value.strip().lower() in on
     raise ConfigError(f"{setting}={value!r}: on or off")
+
+
+def _vad(name: str) -> ModelFile | None:
+    """The VAD model; empty means the default one, like the other settings, and off none."""
+    name = name.strip() or "silero-v5.1.2"
+    if name.lower() == "off":
+        return None
+    return _pick("HUDDLE_VAD_MODEL", name, models.VAD | {"off": None})
 
 
 def _language(value: str) -> str:

@@ -1,7 +1,7 @@
 """Every model the service can use, in one catalogue.
 
-Which one is used is a setting (.env: HUDDLE_WHISPER_MODEL, HUDDLE_VOICE_MODEL,
-HUDDLE_NOTES_MODEL). Model files are downloaded with `huddle-notes models download`
+Which one is used is a setting (.env: HUDDLE_WHISPER_MODEL, HUDDLE_VAD_MODEL,
+HUDDLE_VOICE_MODEL, HUDDLE_NOTES_MODEL). Model files are downloaded with `huddle-notes models download`
 and checked against the checksums below, so a broken or tampered file is never used.
 """
 
@@ -48,6 +48,21 @@ WHISPER = {
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
             "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2",
             "large.v3",
+        ),
+    )
+}
+
+# Finds speech before whisper listens: whisper never hears long silence, where it makes up
+# a phrase and repeats it over the rest of the call
+VAD = {
+    m.name: m
+    for m in (
+        ModelFile(
+            "silero-v5.1.2",
+            "находит речь и убирает тишину перед Whisper (0,9 МБ)",
+            "ggml-silero-v5.1.2.bin",
+            "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin",
+            "29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf",
         ),
     )
 }

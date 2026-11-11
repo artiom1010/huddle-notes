@@ -65,8 +65,9 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
    программа\.venv\Scripts\huddle-notes.exe models download
    программа\.venv\Scripts\huddle-notes.exe models
    ```
-   У модели whisper должно стоять `downloaded`. Модель голосов скачивается и нужна, только
-   если имена включены (`HUDDLE_SPEAKERS=on`).
+   У моделей whisper и VAD (`silero-v5.1.2`, находит речь, чтобы Whisper не зацикливался на
+   тишине) должно стоять `downloaded`. Модель голосов скачивается и нужна, только если имена
+   включены (`HUDDLE_SPEAKERS=on`).
 5. Claude Code для терминала: через команду `claude` программа пишет заметки. Приложение
    Claude эту команду не ставит. По имени твой терминал её может не найти (см. выше про PATH),
    поэтому вызывай её полным путём `& "$env:USERPROFILE\.local\bin\claude.exe"`.
@@ -193,8 +194,14 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
   cd программа
   uv pip install --python .venv\Scripts\python.exe --reinstall-package huddle-notes .
   cd ..
+  программа\.venv\Scripts\huddle-notes.exe models download
   Start-ScheduledTask -TaskName "Huddle Notes"
   ```
+  `models download` докачивает модели, которых не хватает новой версии; у уже скачанных
+  сверяет контрольные суммы (это минута-две) и перекачивает только испорченные. Если он
+  упал (нет интернета), запусти его ещё раз и перезапусти задачу «Huddle Notes»: без модели
+  VAD программа работает, но в логе будет строка `no VAD model`, а Whisper может зациклиться
+  на долгой тишине.
   Проверь, что в `данные\logs\watch.log` появилась новая строка `watching ...\Записи`.
   `.env`, `данные\`, «Записи» и «Результаты» обновление не трогает. Если в `данные\people`
   лежит старая база лиц и голосов, а имена выключены, она не используется; удаляй её, только

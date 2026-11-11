@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from huddle_notes import vad
 from huddle_notes.domain import Word
+
+log = logging.getLogger(__name__)
 
 # The codes whisper.cpp knows (g_lang in src/whisper.cpp); it exits 0 on any other.
 _CODES = """
@@ -36,6 +40,10 @@ class TranscriptionError(RuntimeError):
     pass
 
 
+class TranscriptionTimeout(TranscriptionError):
+    pass
+
+
 class WhisperTranscriber:
     def __init__(
         self,
@@ -43,6 +51,7 @@ class WhisperTranscriber:
         model: Path,
         dtw_preset: str,
         language: str = "auto",
+        vad_model: Path | None = None,
         timeout: float = 3 * 3600,
     ) -> None:
         self.binary = binary
@@ -51,10 +60,16 @@ class WhisperTranscriber:
         # call, with the Russian glossary as the prompt, made whisper start every line with a
         # word from the prompt and loop on one phrase for the rest of the call.
         self.language = language
+        # VAD: whisper hears the speech only. On long silence it makes up a phrase and keeps
+        # repeating it over whatever is said next; read_words drops the repeats, and with
+        # them the rest of the call.
+        self.vad_model = vad_model
         self.dtw_preset = dtw_preset  # must match the model: per-word timing from its attention heads
         self.timeout = timeout
 
-    def command(self, audio: Path, out_prefix: Path, prompt: str, language: str | None = None) -> list[str]:
+    def command(
+        self, audio: Path, out_prefix: Path, prompt: str, language: str | None = None, vad: bool = True
+    ) -> list[str]:
         # -nfa -dtw: per-word timing, so a phrase can be split where the speaker changes.
         # Not -mc 0: it stops loops but also drops the prompt, punctuation and some speech;
         # read_words throws the repeated segments away instead.
@@ -72,7 +87,8 @@ class WhisperTranscriber:
             self.dtw_preset,
             "-of",
             str(out_prefix),
-            "-np",
+            # with VAD the log must keep its time table (vad.time_table), so not -np
+            *(["--vad", "-vm", str(self.vad_model)] if vad and self.vad_model else ["-np"]),
             *(["--prompt", prompt] if prompt else []),
         ]
 
@@ -90,12 +106,40 @@ class WhisperTranscriber:
     def transcribe(
         self, audio: Path, out_prefix: Path, prompt: str, log_file: Path, language: str | None = None
     ) -> Path:
-        """Writes <out_prefix>.json and returns its path; language overrides the set one."""
-        with log_file.open("wb") as log:
+        """Writes <out_prefix>.json and returns its path; language overrides the set one.
+        With VAD the words get their times in the recording back from whisper's log; a log
+        without them (another whisper version, say) means the call is heard again without VAD."""
+        if self.vad_model is None:
+            return self._run(audio, out_prefix, prompt, log_file, language, vad=False)
+        try:
+            done = self._run(audio, out_prefix, prompt, log_file, language, vad=True)
+        except TranscriptionTimeout:
+            raise  # it would take as long again
+        except TranscriptionError as e:  # a whisper without --vad, a VAD that failed
+            return self._without_vad(audio, out_prefix, prompt, log_file, language, str(e))
+        table = vad.time_table(log_file.read_text(encoding="utf-8", errors="replace"))
+        if table:
+            vad.restore_times(done, table)
+            return done
+        if not json.loads(done.read_text(encoding="utf-8")).get("transcription"):
+            return done  # no speech found at all: no times to restore
+        return self._without_vad(audio, out_prefix, prompt, log_file, language, "no VAD time table in its log")
+
+    def _without_vad(
+        self, audio: Path, out_prefix: Path, prompt: str, log_file: Path, language: str | None, why: str
+    ) -> Path:
+        """The call heard again without VAD; the first log is kept next to the new one."""
+        log.warning("%s: whisper with VAD: %s; transcribing again without VAD", audio.name, why)
+        if log_file.exists():
+            log_file.replace(log_file.with_name(f"{log_file.stem}-vad{log_file.suffix}"))
+        return self._run(audio, out_prefix, prompt, log_file, language, vad=False)
+
+    def _run(self, audio: Path, out_prefix: Path, prompt: str, log_file: Path, language: str | None, vad: bool) -> Path:
+        with log_file.open("wb") as out:
             try:
                 subprocess.run(
-                    self.command(audio, out_prefix, prompt, language),
-                    stdout=log,
+                    self.command(audio, out_prefix, prompt, language, vad),
+                    stdout=out,
                     stderr=subprocess.STDOUT,
                     check=True,
                     timeout=self.timeout,
@@ -103,7 +147,7 @@ class WhisperTranscriber:
             except subprocess.CalledProcessError as e:
                 raise TranscriptionError(f"whisper failed (exit {e.returncode}), see {log_file}") from e
             except subprocess.TimeoutExpired as e:
-                raise TranscriptionError(f"whisper took longer than {self.timeout:.0f} s") from e
+                raise TranscriptionTimeout(f"whisper took longer than {self.timeout:.0f} s") from e
         done = out_prefix.with_suffix(".json")
         if not done.is_file():  # an unknown language: whisper says so and exits 0
             raise TranscriptionError(f"whisper wrote nothing, see {log_file}")

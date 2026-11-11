@@ -80,7 +80,11 @@ def _processor(settings: Settings, notes: bool) -> CallProcessor:
     return CallProcessor(
         media=media,
         transcriber=WhisperTranscriber(
-            settings.whisper_bin, settings.whisper_model, settings.whisper.dtw_preset, settings.whisper_language
+            settings.whisper_bin,
+            settings.whisper_model,
+            settings.whisper.dtw_preset,
+            settings.whisper_language,
+            vad_model=_vad_model(settings),
         ),
         detector=SpeakerDetector(media),
         attributor=SpeakerAttributor(),
@@ -93,6 +97,15 @@ def _processor(settings: Settings, notes: bool) -> CallProcessor:
         wishes=Wishes(settings.wishes_path),
         speakers=settings.speakers,
     )
+
+
+def _vad_model(settings: Settings) -> Path | None:
+    """The VAD model if it is there; a missing one costs whisper's silence loops, not the watcher."""
+    path = settings.vad_model
+    if path is not None and not path.is_file():
+        log.warning("no VAD model %s: whisper hears the silence too (run: huddle-notes models download)", path)
+        return None
+    return path
 
 
 def _library(settings: Settings) -> PeopleLibrary:
@@ -165,7 +178,12 @@ def _models(settings: Settings, args: argparse.Namespace) -> int:
         for model in settings.models_needed:
             download(model, settings.models_dir)
     print(f"chosen: {settings.describe_models()}")
-    for setting, catalogue in (("HUDDLE_WHISPER_MODEL", models.WHISPER), ("HUDDLE_VOICE_MODEL", models.VOICE)):
+    catalogues = (
+        ("HUDDLE_WHISPER_MODEL", models.WHISPER),
+        ("HUDDLE_VAD_MODEL", models.VAD),
+        ("HUDDLE_VOICE_MODEL", models.VOICE),
+    )
+    for setting, catalogue in catalogues:
         print(setting)
         for m in catalogue.values():
             state = "downloaded" if (settings.models_dir / m.file).is_file() else "not downloaded"
