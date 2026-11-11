@@ -1,8 +1,11 @@
 import json
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from huddle_notes.domain import Word
-from huddle_notes.transcribe import WhisperTranscriber, read_words
+from huddle_notes.transcribe import TranscriptionError, WhisperTranscriber, language_of, read_words
 
 
 def tok(text: str, ms: int, dtw: int = -1) -> dict[str, object]:
@@ -66,3 +69,26 @@ def test_command_passes_the_glossary_as_a_prompt_without_a_shell():
     assert cmd[cmd.index("--prompt") + 1] == "Трактор; rm -rf /"
     assert cmd[cmd.index("-dtw") + 1] == "large.v3.turbo"
     assert cmd[cmd.index("-of") + 1] == "out/words"
+    assert cmd[cmd.index("-l") + 1] == "auto"  # a forced language makes whisper loop on calls in another one
+    forced = WhisperTranscriber("whisper-cli", Path("m.bin"), "large.v3.turbo", "en").command(
+        Path("a.wav"), Path("out/words"), ""
+    )
+    assert forced[forced.index("-l") + 1] == "en" and "--prompt" not in forced
+
+
+def test_the_language_whisper_found_is_read_back(tmp_path):
+    found = tmp_path / "found.json"
+    found.write_text(json.dumps({"result": {"language": "en"}, "transcription": []}), encoding="utf-8")
+    assert language_of(found) == "en"
+    assert language_of(write(tmp_path, [])) == "unknown"
+
+
+def test_whisper_that_writes_nothing_is_an_error(tmp_path, monkeypatch):
+    # whisper.cpp prints "unknown language" and exits 0 without writing anything
+    def silent(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr("huddle_notes.transcribe.subprocess.run", silent)
+    whisper = WhisperTranscriber("whisper-cli", Path("m.bin"), "large.v3.turbo", "xx")
+    with pytest.raises(TranscriptionError, match="wrote nothing"):
+        whisper.transcribe(tmp_path / "a.wav", tmp_path / "words", "", tmp_path / "whisper.log")

@@ -155,6 +155,11 @@ def test_the_watcher_and_process_get_the_switch(tmp_path, monkeypatch):
     p = cli._processor(s, notes=True)
     assert p.speakers is False and p.library.avatars == {} and p.library.voices == {}
     assert p.notes is not None and p.notes.prompt == prompt(named=False)
+    assert p.transcriber.language == "auto"
+    assert (
+        cli._processor(ready(tmp_path, monkeypatch, HUDDLE_WHISPER_LANGUAGE="ru"), notes=False).transcriber.language
+        == "ru"
+    )
 
 
 def test_without_speakers_there_is_nothing_to_regress(tmp_path, monkeypatch, capsys):

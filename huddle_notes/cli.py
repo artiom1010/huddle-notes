@@ -79,7 +79,9 @@ def _processor(settings: Settings, notes: bool) -> CallProcessor:
     media = Media(settings.hwaccel)
     return CallProcessor(
         media=media,
-        transcriber=WhisperTranscriber(settings.whisper_bin, settings.whisper_model, settings.whisper.dtw_preset),
+        transcriber=WhisperTranscriber(
+            settings.whisper_bin, settings.whisper_model, settings.whisper.dtw_preset, settings.whisper_language
+        ),
         detector=SpeakerDetector(media),
         attributor=SpeakerAttributor(),
         library=_library(settings),

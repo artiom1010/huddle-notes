@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from huddle_notes import models
 from huddle_notes.feedback import WISHES
 from huddle_notes.models import ModelFile, WhisperModel
+from huddle_notes.transcribe import LANGUAGES
 
 GLOSSARY_NAME = re.compile(r"^[\w-]{1,64}$")  # a file name, never a path
 
@@ -34,6 +35,7 @@ class Settings:
     inbox: Path
     results_dir: Path
     glossary_name: str | None = None
+    whisper_language: str = "auto"  # detected per recording; a code such as ru forces one
     speakers: bool = False  # name who speaks (tiles, avatars, voices); off: a transcript without names
     whisper_bin: str = "whisper-cli"
     claude_bin: str = "claude"
@@ -60,6 +62,7 @@ class Settings:
             inbox=Path(env.get("HUDDLE_INBOX") or data.parent / "Записи").expanduser(),
             results_dir=Path(env.get("HUDDLE_RESULTS") or data.parent / "Результаты").expanduser(),
             glossary_name=env.get("HUDDLE_GLOSSARY") or None,
+            whisper_language=_language(env.get("HUDDLE_WHISPER_LANGUAGE", "auto")),
             speakers=_switch("HUDDLE_SPEAKERS", env.get("HUDDLE_SPEAKERS", "off")),
             claude_bin=env.get("HUDDLE_CLAUDE_BIN", "claude"),
             slack_token=env.get("SLACK_BOT_TOKEN") or None,
@@ -69,7 +72,7 @@ class Settings:
 
     def describe_models(self) -> str:
         speakers = f"voices {self.voice.name}" if self.speakers else "speakers off"
-        return f"whisper {self.whisper.name}, {speakers}, notes {self.notes_model}"
+        return f"whisper {self.whisper.name}, language {self.whisper_language}, {speakers}, notes {self.notes_model}"
 
     @property
     def models_needed(self) -> list[ModelFile]:
@@ -138,6 +141,13 @@ def _switch(setting: str, value: str) -> bool:
     if value.strip().lower() in on | off:
         return value.strip().lower() in on
     raise ConfigError(f"{setting}={value!r}: on or off")
+
+
+def _language(value: str) -> str:
+    code = value.strip().lower() or "auto"
+    if code != "auto" and code not in LANGUAGES:
+        raise ConfigError(f"HUDDLE_WHISPER_LANGUAGE={value!r}: auto, or a language code such as ru or en")
+    return code
 
 
 def _zone(name: str) -> ZoneInfo:

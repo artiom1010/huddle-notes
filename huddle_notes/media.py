@@ -17,6 +17,7 @@ from huddle_notes.domain import Crop
 from huddle_notes.speakers.tiles import Frame
 
 QUICK = 120  # seconds for a probe, one frame or one crop
+LANGUAGE_AT = (0.2, 0.5, 0.8)  # where in a call the pieces of its language sample come from
 
 
 class MediaError(RuntimeError):
@@ -78,6 +79,17 @@ class Media:
         """16 kHz mono, what both whisper and the voice model expect."""
         cmd = ["ffmpeg", "-loglevel", "error", "-y", "-i", str(video), "-vn", "-ar", "16000", "-ac", "1", str(wav)]
         self._run(cmd, self.audio_timeout)
+
+    def language_sample(self, audio: Path, out: Path, length: float, piece: float = 10.0) -> None:
+        """Pieces from 20, 50 and 80 % of a call, glued into one short sample: how the call
+        sounds once people talk, not the silence while they wait for each other."""
+        starts = [max(0.0, min(length * at - piece / 2, length - piece)) for at in LANGUAGE_AT]
+        cmd = ["ffmpeg", "-loglevel", "error", "-y"]
+        for start in starts:
+            cmd += ["-ss", f"{start:.2f}", "-t", f"{piece:.2f}", "-i", str(audio)]
+        glue = "".join(f"[{i}:a]" for i in range(len(starts))) + f"concat=n={len(starts)}:v=0:a=1"
+        cmd += ["-filter_complex", glue, "-ar", "16000", "-ac", "1", "-t", f"{piece * len(starts):.2f}", str(out)]
+        self._run(cmd, QUICK)
 
     def save_crop(self, video: Path, t: float, crop: Crop, out: Path, width: int = 160) -> None:
         x, y, w, h = crop
