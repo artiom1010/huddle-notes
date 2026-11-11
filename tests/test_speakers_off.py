@@ -109,10 +109,10 @@ def test_claude_is_told_there_are_no_names_to_trust():
 
 def test_speakers_are_off_unless_switched_on(tmp_path):
     off = Settings.from_env({"HUDDLE_DATA_DIR": str(tmp_path)})
-    assert off.speakers is False and off.models_needed == [off.whisper]
+    assert off.speakers is False and off.models_needed == [off.whisper, off.vad]
     assert "speakers off" in off.describe_models()
     on = Settings.from_env({"HUDDLE_DATA_DIR": str(tmp_path), "HUDDLE_SPEAKERS": "On"})
-    assert on.speakers is True and on.models_needed == [on.whisper, on.voice]
+    assert on.speakers is True and on.models_needed == [on.whisper, on.vad, on.voice]
     with pytest.raises(ConfigError, match="HUDDLE_SPEAKERS"):
         Settings.from_env({"HUDDLE_SPEAKERS": "maybe"})
 
