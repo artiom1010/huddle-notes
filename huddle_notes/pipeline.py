@@ -25,11 +25,12 @@ from huddle_notes.notes import NotesError, NotesWriter
 from huddle_notes.people import PeopleLibrary
 from huddle_notes.render import CallInfo, call_document, paragraphs, participants, report, transcript_markdown
 from huddle_notes.speakers.detector import SpeakerDetector
-from huddle_notes.transcribe import WhisperTranscriber, read_words
+from huddle_notes.transcribe import WhisperTranscriber, language_of, read_words
 
 log = logging.getLogger(__name__)
 
 UNKNOWN_FACES = "Не опознаны"
+UNSURE = 0.5  # a language heard with less probability is reported as a guess
 
 
 @dataclass(frozen=True)
@@ -84,11 +85,13 @@ class CallProcessor:
 
         words_json = work / "words.json"
         if not words_json.exists():
+            language = self._language(video, audio, work)
             log.info("%s: transcribing", video.name)
-            done = self.transcriber.transcribe(audio, work / "partial-words", glossary, work / "whisper.log")
+            done = self.transcriber.transcribe(audio, work / "partial-words", glossary, work / "whisper.log", language)
             done.replace(words_json)
 
         words = read_words(words_json)
+        log.info("%s: language %s, %d words", video.name, language_of(words_json), len(words))
         detection, result = self._name_speakers(video, work, audio, words, manual) if self.speakers else (None, None)
         if detection is not None and result is not None:
             turns, duration, said = result.turns(), detection.frames / detection.fps, report(result, len(words))
@@ -127,6 +130,30 @@ class CallProcessor:
             manual,
         )
         return detection, result
+
+    def _language(self, video: Path, audio: Path, work: Path) -> str:
+        """The call's language: the one set, else the one whisper hears in the middle of the
+        call. Whisper alone listens to the first 30 seconds, often silence while people wait
+        for each other, and takes a Russian call for an English one. If the sample can't
+        tell, whisper guesses from the start after all."""
+        if self.transcriber.language != "auto":
+            return self.transcriber.language
+        sample = work / "language.wav"
+        try:
+            self.media.language_sample(audio, sample, self.media.duration(audio))
+            found = self.transcriber.detect_language(sample)
+        except (MediaError, ValueError) as e:
+            log.warning("%s: no language sample: %s", video.name, e)
+            found = None
+        finally:
+            with contextlib.suppress(OSError):  # Windows may still hold it: a stray file costs nothing
+                sample.unlink(missing_ok=True)
+        if found is None:
+            log.warning("%s: the language is left to whisper", video.name)
+            return "auto"
+        level = logging.INFO if found[1] >= UNSURE else logging.WARNING  # music or silence, say
+        log.log(level, "%s: language %s (p = %.2f), heard at 20, 50 and 80 %% of the call", video.name, *found)
+        return found[0]
 
     def _duration(self, video: Path, words: list[Word]) -> float:
         """The recording's length; the last word's end when the file can't say."""

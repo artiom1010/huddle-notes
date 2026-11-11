@@ -45,6 +45,17 @@ def test_models_are_chosen_in_one_place():
         Settings.from_env({"HUDDLE_TIMEZONE": "Марс/Олимп"})
 
 
+def test_whisper_finds_the_language_itself_unless_one_is_set():
+    s = Settings.from_env({})
+    assert s.whisper_language == "auto" and "language auto" in s.describe_models()
+    assert Settings.from_env({"HUDDLE_WHISPER_LANGUAGE": " RU "}).whisper_language == "ru"
+    assert Settings.from_env({"HUDDLE_WHISPER_LANGUAGE": ""}).whisper_language == "auto"
+    assert Settings.from_env({"HUDDLE_WHISPER_LANGUAGE": "yue"}).whisper_language == "yue"
+    for wrong in ("russian", "rus", "eng", "xx", "ru en", "-l"):  # whisper would exit 0 and write nothing
+        with pytest.raises(ConfigError, match="HUDDLE_WHISPER_LANGUAGE"):
+            Settings.from_env({"HUDDLE_WHISPER_LANGUAGE": wrong})
+
+
 def test_a_downloaded_model_is_used_only_if_its_checksum_matches(tmp_path):
     source = tmp_path / "model.bin"
     source.write_bytes(b"weights")

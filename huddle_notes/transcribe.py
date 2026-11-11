@@ -10,6 +10,17 @@ from pathlib import Path
 
 from huddle_notes.domain import Word
 
+# The codes whisper.cpp knows (g_lang in src/whisper.cpp); it exits 0 on any other.
+_CODES = """
+en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no th ur hr
+bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw gl mr pa si km sn
+yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb my bo tl mg as tt haw ln ha ba jw su
+yue
+"""
+LANGUAGES = frozenset(_CODES.split())
+DETECTED = re.compile(r"auto-detected language: ([a-z]+) \(p = ([0-9.]+)\)")
+DETECT_TIMEOUT = 300  # seconds to load the model and hear one short sample
+
 # whisper's stock phrases for silence, learned from subtitled videos
 JUNK = (
     "продолжение следует",
@@ -31,16 +42,19 @@ class WhisperTranscriber:
         binary: str,
         model: Path,
         dtw_preset: str,
-        language: str = "ru",
+        language: str = "auto",
         timeout: float = 3 * 3600,
     ) -> None:
         self.binary = binary
         self.model = model
+        # auto: the language is found per call (detect_language). Russian forced on an English
+        # call, with the Russian glossary as the prompt, made whisper start every line with a
+        # word from the prompt and loop on one phrase for the rest of the call.
         self.language = language
         self.dtw_preset = dtw_preset  # must match the model: per-word timing from its attention heads
         self.timeout = timeout
 
-    def command(self, audio: Path, out_prefix: Path, prompt: str) -> list[str]:
+    def command(self, audio: Path, out_prefix: Path, prompt: str, language: str | None = None) -> list[str]:
         # -nfa -dtw: per-word timing, so a phrase can be split where the speaker changes.
         # Not -mc 0: it stops loops but also drops the prompt, punctuation and some speech;
         # read_words throws the repeated segments away instead.
@@ -49,7 +63,7 @@ class WhisperTranscriber:
             "-m",
             str(self.model),
             "-l",
-            self.language,
+            language or self.language,
             "-f",
             str(audio),
             "-ojf",
@@ -62,12 +76,25 @@ class WhisperTranscriber:
             *(["--prompt", prompt] if prompt else []),
         ]
 
-    def transcribe(self, audio: Path, out_prefix: Path, prompt: str, log_file: Path) -> Path:
-        """Writes <out_prefix>.json and returns its path."""
+    def detect_language(self, sample: Path) -> tuple[str, float] | None:
+        """The language whisper hears in a short sample, with its probability; None if it
+        can't tell. Whisper itself only listens to the first 30 seconds of a recording."""
+        cmd = [self.binary, "-m", str(self.model), "-l", "auto", "-dl", "-f", str(sample)]
+        try:
+            done = subprocess.run(cmd, capture_output=True, timeout=DETECT_TIMEOUT)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        found = DETECTED.search((done.stdout + done.stderr).decode(errors="replace"))
+        return (found[1], float(found[2])) if found else None
+
+    def transcribe(
+        self, audio: Path, out_prefix: Path, prompt: str, log_file: Path, language: str | None = None
+    ) -> Path:
+        """Writes <out_prefix>.json and returns its path; language overrides the set one."""
         with log_file.open("wb") as log:
             try:
                 subprocess.run(
-                    self.command(audio, out_prefix, prompt),
+                    self.command(audio, out_prefix, prompt, language),
                     stdout=log,
                     stderr=subprocess.STDOUT,
                     check=True,
@@ -77,7 +104,10 @@ class WhisperTranscriber:
                 raise TranscriptionError(f"whisper failed (exit {e.returncode}), see {log_file}") from e
             except subprocess.TimeoutExpired as e:
                 raise TranscriptionError(f"whisper took longer than {self.timeout:.0f} s") from e
-        return out_prefix.with_suffix(".json")
+        done = out_prefix.with_suffix(".json")
+        if not done.is_file():  # an unknown language: whisper says so and exits 0
+            raise TranscriptionError(f"whisper wrote nothing, see {log_file}")
+        return done
 
 
 @dataclass
@@ -87,6 +117,12 @@ class _Draft:
     start: float
     text: str
     end: float | None = None
+
+
+def language_of(path: Path) -> str:
+    """The language whisper transcribed in: the one it detected, or the one it was given."""
+    result = json.loads(path.read_text(encoding="utf-8")).get("result") or {}
+    return str(result.get("language") or "unknown")
 
 
 def read_words(path: Path) -> list[Word]:
