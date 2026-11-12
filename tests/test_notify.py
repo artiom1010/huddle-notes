@@ -5,6 +5,7 @@ from our script, and the app id goes into the user's registry.
 """
 
 import base64
+import contextlib
 import re
 import subprocess
 import sys
@@ -62,6 +63,20 @@ def test_the_name_reaches_powershell_whole_whatever_its_letters_and_quotes():
     assert ".Show($toast)" in script
 
 
+def test_a_name_utf8_cannot_hold_is_logged_not_raised(caplog):
+    assert WindowsToast(slack=True, run=FakeRun()).show("Взял в работу", "bad \udc80 name.mkv") is False
+    assert "notification failed" in caplog.text
+
+
+def test_powershell_errors_come_back_as_one_plain_line():
+    script = decoded_script(WindowsToast(slack=True).command(toast_xml("x")))
+    assert "$ProgressPreference = 'SilentlyContinue'" in script  # no CLIXML progress records on stderr
+    assert "[Console]::Error.WriteLine($_.Exception.Message)" in script and script.rstrip().endswith("}")
+    run = FakeRun()
+    WindowsToast(slack=True, run=run).show("x")
+    assert run.calls[0][1]["encoding"] == "utf-8"
+
+
 def test_a_check_builds_the_toast_without_showing_it():
     script = decoded_script(WindowsToast(slack=True).command(toast_xml("x"), show=False))
     assert "LoadXml" in script and "Show(" not in script
@@ -82,15 +97,20 @@ def test_without_a_registered_name_toasts_go_under_powershell():
 
 @pytest.mark.skipif(sys.platform == "win32", reason="not Windows")
 def test_no_notes_on_screen_outside_windows():
-    assert desktop_notifier(True, slack=True) is None
+    assert desktop_notifier("on", slack=True) is None
+    assert desktop_notifier("powershell", slack=True) is None
     assert register("HuddleNotesTest", "x") is False
 
 
 def test_notes_on_screen_are_on_unless_switched_off(tmp_path):
     base = {"HUDDLE_DATA_DIR": str(tmp_path)}
-    assert Settings.from_env(base).desktop_notify
-    assert Settings.from_env(base | {"HUDDLE_DESKTOP_NOTIFY": ""}).desktop_notify
-    assert not Settings.from_env(base | {"HUDDLE_DESKTOP_NOTIFY": "off"}).desktop_notify
+
+    def mode(value: str | None) -> str:
+        return Settings.from_env(base if value is None else base | {"HUDDLE_DESKTOP_NOTIFY": value}).desktop_notify
+
+    assert mode(None) == mode("") == mode("on") == mode("yes") == "on"
+    assert mode("off") == mode("0") == "off"
+    assert mode("PowerShell") == "powershell"
     with pytest.raises(ConfigError):
         Settings.from_env(base | {"HUDDLE_DESKTOP_NOTIFY": "maybe"})
 
@@ -110,6 +130,12 @@ def test_windows_rejects_a_broken_toast_so_the_check_above_means_something():
 
 
 @windows
+def test_powershell_mode_registers_nothing_and_uses_powershells_id():
+    toast = desktop_notifier("powershell", slack=True)
+    assert toast is not None and toast.app_id == POWERSHELL_APP_ID and not toast.registered
+
+
+@windows
 def test_the_app_name_goes_into_the_users_registry():
     import winreg
 
@@ -119,4 +145,5 @@ def test_the_app_name_goes_into_the_users_registry():
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
             assert winreg.QueryValueEx(key, "DisplayName")[0] == "Huddle Notes Test"
     finally:
-        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key_path)
+        with contextlib.suppress(FileNotFoundError):  # not created: the assert above says why
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key_path)

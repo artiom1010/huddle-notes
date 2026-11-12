@@ -184,7 +184,7 @@ def _notify_test(settings: Settings) -> int:
     """A trial toast, to see it work after installing or updating."""
     toast = desktop_notifier(settings.desktop_notify, slack=bool(settings.slack_token))
     if toast is None:
-        if settings.desktop_notify:
+        if settings.desktop_notify != "off":
             print("notifications on screen are shown on Windows only")
         else:
             print("HUDDLE_DESKTOP_NOTIFY=off: notifications on screen are switched off")

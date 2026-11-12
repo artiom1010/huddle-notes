@@ -60,11 +60,12 @@ class WindowsToast:
                 self.command(toast_xml(*lines)),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",  # the script switches PowerShell's output to UTF-8
                 errors="replace",
                 timeout=TIMEOUT,
                 creationflags=_NO_WINDOW,
             )
-        except (OSError, subprocess.SubprocessError) as e:
+        except (OSError, subprocess.SubprocessError, ValueError) as e:  # ValueError: a name UTF-8 can't hold
             log.warning("notification failed: %s", e)
             return False
         if done.returncode != 0:
@@ -78,12 +79,15 @@ class WindowsToast:
         return [_powershell(), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
 
 
-def desktop_notifier(enabled: bool, slack: bool) -> WindowsToast | None:
-    """Toasts on Windows, under our own name when the id could be registered; None elsewhere
-    or when switched off."""
-    if not enabled or sys.platform != "win32":
+def desktop_notifier(mode: str, slack: bool) -> WindowsToast | None:
+    """Toasts on Windows: mode on — under our own name when the id could be registered;
+    powershell — under Windows PowerShell's id, for a Windows that drops toasts of an id it
+    only knows from the registry (it does so silently, so only the owner's eyes can tell).
+    None elsewhere or when off."""
+    if mode == "off" or sys.platform != "win32":
         return None
-    return WindowsToast(slack, APP_ID if register(APP_ID, APP_NAME) else POWERSHELL_APP_ID)
+    own = mode == "on" and register(APP_ID, APP_NAME)
+    return WindowsToast(slack, APP_ID if own else POWERSHELL_APP_ID)
 
 
 def register(app_id: str, name: str) -> bool:
@@ -108,10 +112,14 @@ def toast_xml(*lines: str) -> str:
 
 
 def script(xml: str, app_id: str, show: bool = True) -> str:
-    """Builds the toast from base64 (no quoting to get wrong) and, with show, shows it."""
+    """Builds the toast from base64 (no quoting to get wrong) and, with show, shows it. An
+    error comes out as one plain UTF-8 line on stderr, not as PowerShell's CLIXML."""
     winrt = "ContentType = WindowsRuntime] > $null"
     lines = [
         "$ErrorActionPreference = 'Stop'",
+        "$ProgressPreference = 'SilentlyContinue'",
+        "try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}",  # no console: never mind
+        "try {",
         f"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, {winrt}",
         f"[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, {winrt}",
         f"[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, {winrt}",
@@ -123,6 +131,7 @@ def script(xml: str, app_id: str, show: bool = True) -> str:
     if show:
         manager = "[Windows.UI.Notifications.ToastNotificationManager]"
         lines.append(f"{manager}::CreateToastNotifier((Decode '{_b64(app_id)}')).Show($toast)")
+    lines += ["} catch {", "[Console]::Error.WriteLine($_.Exception.Message)", "exit 1", "}"]
     return "\n".join(lines)
 
 
