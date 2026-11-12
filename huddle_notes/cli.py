@@ -3,6 +3,7 @@
   huddle-notes watch                     process every new recording in the inbox, send results
   huddle-notes process VIDEO [--names "3=Вася"] [--learn] [--notify] [--no-notes]
   huddle-notes models [download]
+  huddle-notes notify-test               show a trial note on screen (Windows)
   huddle-notes regress DIR [--accept]
 
 Settings come from the environment and from a .env file (--env, default ./.env).
@@ -28,6 +29,7 @@ from huddle_notes.feedback import SlackFeedback, Wishes
 from huddle_notes.media import Media
 from huddle_notes.models import download
 from huddle_notes.notes import ClaudeCodeNotes
+from huddle_notes.notify import APP_NAME, desktop_notifier
 from huddle_notes.people import PeopleLibrary
 from huddle_notes.pipeline import CallProcessor
 from huddle_notes.regression import run_regression
@@ -60,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
             return _process(settings, args)
         if args.command == "models":
             return _models(settings, args)
+        if args.command == "notify-test":
+            return _notify_test(settings)
         return _regress(settings, args)
     except ConfigError as e:
         log.error("%s", e)
@@ -161,14 +165,36 @@ def _watch(settings: Settings) -> int:
             settings.data_dir / "slack-feedback.json",
             settings.timezone,
         ).poll
+    toast = desktop_notifier(settings.desktop_notify, slack=delivery is not None)
+    if toast is not None:
+        log.info("notifications on screen: on, as %s", APP_NAME if toast.registered else "Windows PowerShell")
     watcher = Watcher(
         settings.inbox,
         Journal(settings.results_dir / JOURNAL),
         lambda video: processor.process(video, glossary, {}),
         delivery,
         feedback=feedback,
+        taken=toast.taken if toast else None,
     )
     watcher.run_forever()
+    return 0
+
+
+def _notify_test(settings: Settings) -> int:
+    """A trial toast, to see it work after installing or updating."""
+    toast = desktop_notifier(settings.desktop_notify, slack=bool(settings.slack_token))
+    if toast is None:
+        if settings.desktop_notify != "off":
+            print("notifications on screen are shown on Windows only")
+        else:
+            print("HUDDLE_DESKTOP_NOTIFY=off: notifications on screen are switched off")
+        return 1
+    if not toast.show("Проверка уведомлений", "Так Huddle Notes скажет, что взял новую запись в работу"):
+        print("Windows did not take the note: see the warning above")
+        return 1
+    print(f"sent to Windows as {APP_NAME if toast.registered else 'Windows PowerShell'}.")
+    print("Nothing in the corner of the screen? Look in the notification centre (Win+N; Win+A on Windows 10):")
+    print("Do not disturb puts it there. Not there either: notifications are off in Settings → System.")
     return 0
 
 
@@ -248,6 +274,7 @@ def _parser() -> argparse.ArgumentParser:
     proc.add_argument("--no-notes", action="store_true", help="transcript only, without asking Claude")
     mod = sub.add_parser("models", help="which models are chosen; download fetches and checks them")
     mod.add_argument("action", nargs="?", choices=["download"])
+    sub.add_parser("notify-test", help="show a trial note on screen, as for a new recording (Windows)")
     reg = sub.add_parser("regress", help="check speaker naming against accepted transcripts")
     reg.add_argument("dir")
     reg.add_argument("--accept", action="store_true", help="make the new output the expected one")

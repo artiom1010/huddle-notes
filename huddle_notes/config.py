@@ -38,6 +38,7 @@ class Settings:
     glossary_name: str | None = None
     whisper_language: str = "auto"  # detected per recording; a code such as ru forces one
     speakers: bool = False  # name who speaks (tiles, avatars, voices); off: a transcript without names
+    desktop_notify: str = "on"  # Windows: a note on screen for a new recording; off, or powershell
     whisper_bin: str = "whisper-cli"
     claude_bin: str = "claude"
     hwaccel: str | None = None
@@ -66,6 +67,7 @@ class Settings:
             glossary_name=env.get("HUDDLE_GLOSSARY") or None,
             whisper_language=_language(env.get("HUDDLE_WHISPER_LANGUAGE", "auto")),
             speakers=_switch("HUDDLE_SPEAKERS", env.get("HUDDLE_SPEAKERS", "off")),
+            desktop_notify=_notify(env.get("HUDDLE_DESKTOP_NOTIFY", "")),
             claude_bin=env.get("HUDDLE_CLAUDE_BIN", "claude"),
             slack_token=env.get("SLACK_BOT_TOKEN") or None,
             slack_channel=env.get("SLACK_CHANNEL") or None,
@@ -157,6 +159,14 @@ def _vad(name: str) -> ModelFile | None:
     if name.lower() == "off":
         return None
     return _pick("HUDDLE_VAD_MODEL", name, models.VAD | {"off": None})
+
+
+def _notify(value: str) -> str:
+    """on (also empty), off, or powershell: the toast under Windows PowerShell's name."""
+    word = value.strip().lower()
+    if word == "powershell":
+        return word
+    return "on" if _switch("HUDDLE_DESKTOP_NOTIFY", word or "on") else "off"
 
 
 def _language(value: str) -> str:

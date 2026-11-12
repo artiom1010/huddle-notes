@@ -10,6 +10,9 @@ Slack; a message Slack refused is sent again; notes Claude could not write (a us
 say) are asked for again for a few hours, and sent when they come.
 
 Every few minutes the watcher also reads the team's feedback under its messages in Slack.
+
+When a new recording is taken into work, the owner can be told on screen; the retries of a
+call already taken are not announced again.
 """
 
 from __future__ import annotations
@@ -62,6 +65,7 @@ class Watcher:
         max_attempts: int = 3,
         clock: Callable[[], float] = time.time,
         feedback: Callable[[], object] | None = None,
+        taken: Callable[[str], object] | None = None,
     ) -> None:
         self.inbox = inbox
         self.journal = journal
@@ -71,6 +75,7 @@ class Watcher:
         self.max_attempts = max_attempts
         self.clock = clock
         self.feedback = feedback  # reads the team's replies in Slack; None without Slack
+        self.taken = taken  # tells the owner a new recording is taken into work; None: nobody
         self._feedback_due = 0.0
         self._seen: dict[str, tuple[int, float]] = {}  # name -> (size, when that size was first seen)
 
@@ -147,6 +152,8 @@ class Watcher:
         # a call done earlier (message not sent, notes missing) is processed again to rebuild
         # its result: every step is cached, so this costs seconds, not another transcription
         log.info("%s %s", "retrying" if entry.get("status") == "done" else "processing", video.name)
+        if entry.get("status") is None:  # new, or grown since: not a retry
+            self._announce(video.name)
         try:
             result = self.process(video)
         except Exception as e:
@@ -187,6 +194,15 @@ class Watcher:
             self.journal.update(video.name, delivery_error=str(e)[:500], retry_after=self.clock() + RETRY)
             return
         self.journal.update(video.name, delivered=True, delivery_error=None)
+
+    def _announce(self, name: str) -> None:
+        """A note on screen; never stops the call itself."""
+        if self.taken is None:
+            return
+        try:
+            self.taken(name)
+        except Exception:
+            log.exception("%s: notification failed", name)
 
     def _report_failure(self, name: str, error: str) -> None:
         if self.delivery is None:
