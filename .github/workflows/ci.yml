@@ -29,6 +29,22 @@ jobs:
       - run: mypy
       - run: pytest -q
 
+  windows:
+    name: notes on screen (Windows)
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
+      - name: types of the Windows-only code (registry), which mypy skips on Linux
+        run: mypy
+      - name: Windows builds the toast from our script; the app name goes into the registry
+        run: pytest -q tests/test_notify.py
+
   scripts:
     name: shell scripts
     runs-on: ubuntu-24.04

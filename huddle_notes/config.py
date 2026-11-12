@@ -38,6 +38,7 @@ class Settings:
     glossary_name: str | None = None
     whisper_language: str = "auto"  # detected per recording; a code such as ru forces one
     speakers: bool = False  # name who speaks (tiles, avatars, voices); off: a transcript without names
+    desktop_notify: bool = True  # Windows: a note on screen when a new recording is taken into work
     whisper_bin: str = "whisper-cli"
     claude_bin: str = "claude"
     hwaccel: str | None = None
@@ -66,6 +67,7 @@ class Settings:
             glossary_name=env.get("HUDDLE_GLOSSARY") or None,
             whisper_language=_language(env.get("HUDDLE_WHISPER_LANGUAGE", "auto")),
             speakers=_switch("HUDDLE_SPEAKERS", env.get("HUDDLE_SPEAKERS", "off")),
+            desktop_notify=_switch("HUDDLE_DESKTOP_NOTIFY", env.get("HUDDLE_DESKTOP_NOTIFY") or "on"),
             claude_bin=env.get("HUDDLE_CLAUDE_BIN", "claude"),
             slack_token=env.get("SLACK_BOT_TOKEN") or None,
             slack_channel=env.get("SLACK_CHANNEL") or None,

@@ -220,6 +220,44 @@ def test_a_recording_that_grows_after_processing_is_processed_again(tmp_path):
     assert len(process.calls) == 2 and delivery.sent == [True, True]
 
 
+def test_the_owner_is_told_once_per_new_recording_not_on_its_retries(tmp_path):
+    folder, clock, delivery, told = inbox(tmp_path), Clock(), FakeDelivery(), []
+    name = "2026-11-09 10-01-05.mkv"
+    process = Recorder(tmp_path, fail=RuntimeError("whisper failed"))
+    journal = Journal(tmp_path / "journal.json")
+    watcher = Watcher(folder, journal, process, delivery, settle=0, clock=clock, taken=told.append)
+    watcher.tick()
+    assert told == []  # first sight: not taken yet
+    watcher.tick()
+    assert told == [name]
+    clock.now += 700
+    watcher.tick()  # the failed transcription is tried again
+    process.fail, process.notes_error = None, "usage limit reached"
+    clock.now += 700
+    watcher.tick()  # done, but without notes
+    clock.now += 1900
+    watcher.tick()  # the notes are asked for again
+    assert len(process.calls) == 4 and told == [name]
+
+    (folder / name).write_bytes(b"x" * 30)  # OBS paused, then went on: a new recording again
+    watcher.tick()
+    watcher.tick()
+    assert len(process.calls) == 5 and told == [name, name]
+
+
+def test_a_note_that_could_not_be_shown_does_not_stop_the_call(tmp_path):
+    folder, clock, process, delivery = inbox(tmp_path), Clock(), Recorder(tmp_path), FakeDelivery()
+
+    def broken(name: str) -> None:
+        raise RuntimeError("no screen")
+
+    journal = Journal(tmp_path / "journal.json")
+    watcher = Watcher(folder, journal, process, delivery, settle=0, clock=clock, taken=broken)
+    watcher.tick()
+    watcher.tick()
+    assert process.calls == ["2026-11-09 10-01-05.mkv"] and delivery.sent == [True]
+
+
 def test_calls_done_without_slack_are_not_sent_once_a_token_appears(tmp_path):
     folder, clock, process = inbox(tmp_path), Clock(), Recorder(tmp_path)
     journal = Journal(tmp_path / "journal.json")
