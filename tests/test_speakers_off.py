@@ -107,6 +107,15 @@ def test_claude_is_told_there_are_no_names_to_trust():
     assert cmd[cmd.index("--system-prompt") + 1] == unnamed
 
 
+def test_notes_are_wide_by_topic_and_name_only_who_was_named():
+    for named in (False, True):
+        p = " ".join(prompt(named).split())  # the text wraps; the rules are what matters
+        assert "Подробнее лучше, чем короче" in p and "### <Тема разговора> (ЧЧ:ММ:СС)" in p
+        assert "без «кто — не ясно»" in p or "Не пиши «кто — не ясно»" in p  # only as what not to write
+        assert "- [ ]" not in p  # next steps are plain items, not checkboxes
+    assert "«это тоже на Вове»" in prompt(named=False)  # a name only when the call says who does it
+
+
 def test_speakers_are_off_unless_switched_on(tmp_path):
     off = Settings.from_env({"HUDDLE_DATA_DIR": str(tmp_path)})
     assert off.speakers is False and off.models_needed == [off.whisper, off.vad]
