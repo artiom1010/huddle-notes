@@ -34,7 +34,7 @@ VIDEO = {".mp4", ".mov", ".mkv", ".m4v", ".webm", ".flv"}
 JOURNAL = ".huddle-notes-journal.json"
 RETRY = 600  # seconds before trying a failed recording or message again
 NOTES_RETRY = 1800  # seconds before asking Claude again for notes it could not write
-NOTES_TRIES = 12  # 6 hours: longer than a subscription's usage limit lasts
+NOTES_TRIES = 12  # the first try and 11 more, 30 minutes apart: about 5.5 hours, longer than a usage limit lasts
 FEEDBACK_EVERY = 300  # seconds between reads of the replies under the bot's messages
 
 

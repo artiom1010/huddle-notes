@@ -26,7 +26,7 @@ Huddle Notes/
 
 Когда наблюдатель берёт новую запись в работу, в углу экрана Windows всплывает уведомление
 «Взял в работу» с именем файла: один раз на запись, повторные попытки по тому же звонку идут
-без него. Выключается строкой `HUDDLE_DESKTOP_NOTIFY=off` в `.env`. На этом компьютере его ещё не
+без него. Выключается командой `Set-Env HUDDLE_DESKTOP_NOTIFY off` (шаг 6). На этом компьютере его ещё не
 видели: проверено только, что Windows собирает его из скрипта программы. Поэтому после
 установки или обновления спроси владельца, всплыло ли пробное (`notify-test`).
 
@@ -65,8 +65,8 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
    - NVIDIA: https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-win-cuda-12.4.0-x64.zip
 
    Распакуй в `whisper\` и найди `whisper-cli.exe`. Если CUDA-сборка не запускается
-   (не хватает библиотек CUDA), поставь обычную. Если он не прямо в `whisper\`, поправь
-   путь `HUDDLE_WHISPER_BIN` в `.env`. Проверь: `whisper\whisper-cli.exe --help`.
+   (не хватает библиотек CUDA), поставь обычную. Если он не прямо в `whisper\`, впиши
+   путь: `Set-Env HUDDLE_WHISPER_BIN <путь>` (команда из шага 6). Проверь: `whisper\whisper-cli.exe --help`.
 3. Программа:
    ```powershell
    cd программа
@@ -74,7 +74,7 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
    uv pip install --python .venv\Scripts\python.exe .
    cd ..
    ```
-4. Модели (около 1,7 ГБ, контрольные суммы проверяются):
+4. Модели (около 1,6 ГБ, контрольные суммы проверяются):
    ```powershell
    программа\.venv\Scripts\huddle-notes.exe models download
    программа\.venv\Scripts\huddle-notes.exe models
@@ -121,8 +121,51 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
    & "$env:USERPROFILE\.local\bin\claude.exe" -p "Reply with one word: works" --model claude-opus-5-5 --tools=
    ```
    Пустой список инструментов пиши как `--tools=`: PowerShell 5.1 выбрасывает из команды `""`.
-6. Slack: владелец вписывает в `.env` `SLACK_BOT_TOKEN` (сам, не через чат). `SLACK_CHANNEL`
-   и `SLACK_NOTIFY_USER` уже заполнены. Бот `@huddle_notes` должен быть в канале.
+6. Slack, время и словарь. Программа присылает результат от имени бота в канал владельца.
+   В `.env` будет токен, поэтому файл целиком не читай и не открывай своим инструментом
+   редактирования. Значения вписывай командой ниже (определение функции и вызов — одной
+   командой; `<КЛЮЧ>` и `<значение>` подставь). Она меняет значение в строке, которая уже
+   есть, а если строки нет, добавляет её: вторая такая же строка ниже первой не сработала бы.
+   ```powershell
+   function Set-Env($k, $v) { $f = Join-Path $PWD ".env"; $t = [IO.File]::ReadAllText($f); $p = "(?m)^[ \t]*$k[ \t]*=[^\r\n]*"; if ($t -match $p) { $t = $t -replace $p, "$k=$v" } else { $t = $t.TrimEnd() + "`n$k=$v`n" }; [IO.File]::WriteAllText($f, $t, (New-Object Text.UTF8Encoding $false)) }; Set-Env <КЛЮЧ> <значение>
+   ```
+   Что получилось, смотри без токена:
+   `Get-Content .env -Encoding UTF8 | Select-String '^\s*(SLACK_CHANNEL|SLACK_NOTIFY_USER|HUDDLE_TIMEZONE|HUDDLE_GLOSSARY)\s*='`.
+   Порядок важен: токен — последним. С токеном, но без канала наблюдатель не запускается (в
+   логе `SLACK_BOT_TOKEN and SLACK_CHANNEL are needed`); без токена работает, но результаты
+   только в «Результатах».
+   - **Свой канал у каждой установки.** Если `SLACK_CHANNEL` уже заполнен и это не
+     `C0CEZN01JTV`, пункт пропусти. Иначе спроси у владельца ID его канала: в Slack нажать на
+     название канала, ID внизу окна («Channel ID», вида `C0123ABC`). Это не секрет:
+     `Set-Env SLACK_CHANNEL <ID>`. Канал `#call-recaps` (`C0CEZN01JTV`) занят другой
+     установкой; если владелец даёт его, объясни, что нужен свой. Программа читает ответы
+     под сообщениями своего бота о звонках в канале, чьи бы они ни были: две установки с одним
+     ботом в одном канале записывали бы чужие ответы себе в пожелания и обе отвечали бы в
+     треде. Если своего канала у владельца пока нет, дальше шага 6 не иди, пока он его не
+     заведёт.
+   - **Бот в канале.** Владелец пишет в своём канале `/invite @ai-recap` (или имя своего
+     бота). Если бота в канале нет, сообщения туда не дойдут.
+   - **Кого отмечать.** Спроси у владельца его Slack ID: свой профиль в Slack → «⋮» → «Copy
+     member ID» (вида `U0123ABC`), и `Set-Env SLACK_NOTIFY_USER <ID>`. Бот отмечает владельца
+     в сообщении о каждом звонке и в сообщении об ошибке. Без ID сообщения приходят без
+     отметки.
+   - **Часовой пояс.** По `HUDDLE_TIMEZONE` пишется время звонка в файле и в его имени. Стоит
+     `Europe/Chisinau`; если владелец в другом поясе: `Set-Env HUDDLE_TIMEZONE Europe/Berlin`
+     (свой пояс).
+   - **Словарь.** `HUDDLE_GLOSSARY=староста` — словарь планёрок команды Zinrai: проекты, имена,
+     термины. Whisper получает его как подсказку, а Claude исправляет по нему ошибки
+     распознавания, поэтому чужой словарь вредит. Спроси владельца, из этой ли он команды.
+     Если нет, составь с ним свой: `данные\glossaries\<имя>.txt` (имя — буквы, цифры, `_` и
+     `-`), одна-две строки о том, что за звонки, и списки проектов, имён и терминов, как в
+     `староста.txt`; потом `Set-Env HUDDLE_GLOSSARY <имя>`.
+   - **Токен.** `SLACK_BOT_TOKEN` владелец вписывает сам, не через чат: открывает `.env` в
+     Блокноте, вписывает токен в ту же строку сразу после `SLACK_BOT_TOKEN=` и сохраняет.
+     Токен готового бота `@ai-recap` он получает у разработчика лично; токен своего
+     приложения Slack — на его странице: OAuth & Permissions → Bot User OAuth Token. Проверь
+     (печатается только True или False):
+     ```powershell
+     $l = Select-String -Path .env -Pattern '^\s*SLACK_BOT_TOKEN\s*=' | Select-Object -First 1; [bool]($l -and $l.Line -match '=\s*["'']?xoxb-')
+     ```
 7. Автозапуск наблюдателя при входе в Windows:
    ```powershell
    $root = (Get-Location).Path
@@ -132,14 +175,23 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
      -Argument "-NoProfile -WindowStyle Hidden -Command `"& '$exe' --log '$log' watch`""
    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
    Register-ScheduledTask -TaskName "Huddle Notes" -Action $action -Trigger $trigger `
-     -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1))
+     -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries)
    Start-ScheduledTask -TaskName "Huddle Notes"
    ```
    Проверь, что в `данные\logs\watch.log` появилась строка `watching ...\Записи`. Потом
    `программа\.venv\Scripts\huddle-notes.exe notify-test` и спроси владельца, всплыло ли в углу
-   экрана уведомление «Проверка уведомлений».
+   экрана уведомление «Проверка уведомлений». Без `-AllowStartIfOnBatteries` и
+   `-DontStopIfGoingOnBatteries` Windows не запускала бы задачу на ноутбуке от батареи и
+   останавливала бы её, когда ноутбук отключают от сети.
 8. OBS: Настройки → Вывод → Путь записи → папка `Записи` этой папки. Формат mkv или mp4.
    Источник — «Захват окна» на окно хадла Slack, плюс звук рабочего стола и микрофон.
+   Если в OBS включена автоматическая перепаковка записи в MP4 (расширенные настройки,
+   раздел про запись), выключи её: иначе в «Записях» окажутся два файла одного звонка, и сообщений
+   придёт два. Скажи владельцу, что запись нельзя ставить на паузу: паузу дольше полуминуты
+   программа может принять за конец, и заметки будут только по части до паузы (второе
+   сообщение после остановки — с той же частью). Пересчитать весь звонок: удалить
+   `данные\work\<имя записи без расширения>\audio.wav` и `words.json` там же и обработать
+   запись вручную («Обработай запись» ниже).
 
 ## Проверка
 
@@ -166,14 +218,23 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
   «Результатов», отвечай со временем из расшифровки. Помни, что расшифровка бывает неточной и
   в ней не подписано, кто говорит: называй человека, только если это видно из самого текста.
 - **«Включи имена»** (кто какую реплику сказал): это владелец решает вместе с разработчиком.
-  В `.env` замени значение в строке `HUDDLE_SPEAKERS=off` на `on` (если строки нет, добавь её;
-  вторая такая строка ниже первой не сработает), потом модели (шаг 4) и перезапуск задачи
+  `Set-Env HUDDLE_SPEAKERS on` (команда из шага 6), потом модели (шаг 4) и перезапуск задачи
   «Huddle Notes». Без базы лиц в `данные\people` программа сначала никого не узнаёт.
 - **Пожелание к заметкам** («пиши короче», «задачи всегда с датами»): допиши в конец
   `данные\пожелания.md` строку в том же виде, что и остальные:
   `- ДД.ММ.ГГГГ, <кто> (Claude Code): <пожелание>`. Если файла нет, создай его с заголовком
   `# Пожелания к заметкам`. Правь файл своим инструментом редактирования, в UTF-8, не через
   `Add-Content`. Покажи владельцу итоговый список. Действует со следующего звонка.
+- **Словарь** («добавь в словарь <название>», «Whisper путает название проекта»): файл
+  `данные\glossaries\<имя из HUDDLE_GLOSSARY>.txt` — короткий текст с проектами, именами и
+  терминами команды. Whisper получает его как подсказку и лучше слышит эти слова; Claude
+  тоже получает его вместе с расшифровкой. Правь файл своим инструментом редактирования, в
+  UTF-8: в другой кодировке наблюдатель не запустится. Наблюдатель читает словарь при
+  запуске, поэтому новый действует после перезапуска задачи «Huddle Notes»: останови её и
+  проверь, что программ из `.venv` не осталось (как в «Обнови программу»), потом
+  `Start-ScheduledTask -TaskName "Huddle Notes"`. Проверь, что в `данные\logs\watch.log`
+  появилась новая строка `watching ...\Записи`. Если её нет: строка `no glossary …` — нет
+  файла или неверное имя в `HUDDLE_GLOSSARY`; лог просто оборвался — файл не в UTF-8.
 - **«Покажи пожелания», «убери это пожелание»:** пожелание — строка, начинающаяся с «- », в
   `данные\пожелания.md`; удаляй только то, что владелец назвал. В заметки идут 40 последних.
 - **Расшифровка не на том языке** (например, звонок шёл на двух языках): программа определяет
@@ -199,15 +260,15 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
   нет, уведомления выключены в Параметры → Система → Уведомления (в Windows 10 — «Уведомления
   и действия»): общий переключатель или для «Huddle Notes». Если уведомления включены, а
   пробного нет ни в углу, ни в центре уведомлений, Windows, видимо, молча не принимает имя
-  «Huddle Notes»: впиши в `.env` строку `HUDDLE_DESKTOP_NOTIFY=powershell` (если строка
-  `HUDDLE_DESKTOP_NOTIFY` уже есть, замени её значение), перезапусти задачу «Huddle Notes» и
+  «Huddle Notes»: выполни `Set-Env HUDDLE_DESKTOP_NOTIFY powershell` (команда из шага
+  6), перезапусти задачу «Huddle Notes» и
   снова `notify-test`. Тогда в заголовке будет «Windows PowerShell», текст тот же. Так же
   выглядит уведомление, если имя не удалось записать в реестр (в логе строка
-  `notifications go under Windows PowerShell's name`). `HUDDLE_DESKTOP_NOTIFY=off` в `.env`
+  `notifications go under Windows PowerShell's name`). `Set-Env HUDDLE_DESKTOP_NOTIFY off`
   выключает уведомления совсем.
 - **«Заметки не получились» с `Login expired`:** вход в `claude` истёк. Владелец снова
   выполняет `claude auth login` (шаг 5). Заметки к этому звонку придут сами: программа
-  просит их заново раз в 30 минут, до 6 часов.
+  просит их заново раз в 30 минут, всего 12 попыток (около 5,5 часа).
 - **«Обнови программу из папки <путь>»** (владелец распаковал архив «Обновление Huddle Notes
   <дата>», например «Обновление Huddle Notes 2026-11-12»:
   в нём `программа\` и `CLAUDE.md`). Сначала прочитай `CLAUDE.md` из этой папки: в новой версии
@@ -228,8 +289,11 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
   uv pip install --python .venv\Scripts\python.exe --reinstall-package huddle-notes .
   cd ..
   программа\.venv\Scripts\huddle-notes.exe models download
+  Set-ScheduledTask -TaskName "Huddle Notes" -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries)
   Start-ScheduledTask -TaskName "Huddle Notes"
   ```
+  `Set-ScheduledTask` даёт задаче настройки из шага 7, если она поставлена раньше: на ноутбуке
+  она тогда работает и от батареи.
   `models download` докачивает модели, которых не хватает новой версии; у уже скачанных
   сверяет контрольные суммы (это минута-две) и перекачивает только испорченные. Если он
   упал (нет интернета), запусти его ещё раз и перезапусти задачу «Huddle Notes»: без модели
@@ -245,5 +309,6 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
 ## Правила
 
 - Записи, расшифровки, лица и голоса никуда не отправляй, кроме Slack-сообщения программы.
-- Не показывай содержимое `.env` в чате.
+- `.env` целиком не читай и не показывай: в нём токен. Значения меняй командой `Set-Env`
+  из шага 6, смотри только нужные строки без токена.
 - Не меняй код в `программа\`, пока владелец явно не попросит.

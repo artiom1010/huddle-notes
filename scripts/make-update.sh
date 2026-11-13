@@ -14,6 +14,8 @@ cd "$(dirname "$0")/.."
 
 out="${1:?output folder}/Обновление Huddle Notes $(date +%Y-%m-%d)"  # no dots: they would read as an extension
 [[ ! -e "$out" ]] || { echo "$out already exists" >&2; exit 1; }
+# программа/ comes from the last commit, CLAUDE.md from the file here: they must match
+[[ -z "$(git status --porcelain --untracked-files=no)" ]] || { echo "commit the changes first" >&2; exit 1; }
 
 mkdir -p "$out/программа"
 git archive HEAD | tar -x -C "$out/программа"

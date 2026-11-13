@@ -44,6 +44,8 @@ jobs:
         run: mypy
       - name: Windows builds the toast from our script; the app name goes into the registry
         run: pytest -q tests/test_notify.py
+      - name: the PowerShell in package/CLAUDE.md sets .env values and checks the token as the program reads them
+        run: pytest -q tests/test_package_env.py
 
   scripts:
     name: shell scripts
