@@ -26,9 +26,9 @@ from xml.sax.saxutils import escape
 log = logging.getLogger(__name__)
 
 APP_ID = "HuddleNotes"
-APP_NAME = "Huddle Notes"
+APP_NAME = "Call Recaps"
 # Windows PowerShell's own id: toasts under it need nothing registered, but are headed
-# "Windows PowerShell" instead of "Huddle Notes"
+# "Windows PowerShell" instead of "Call Recaps"
 POWERSHELL_APP_ID = r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe"
 TIMEOUT = 20  # seconds; PowerShell starts in one or two
 _NO_WINDOW: Any = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # no console flashing up for a moment

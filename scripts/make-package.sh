@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Build the "Huddle Notes" folder for one person's computer, and a zip of it.
+# Build the "Call Recaps" folder for one person's computer, and a zip of it.
 #
 #   scripts/make-package.sh <team data folder> <output folder> [<Slack channel ID> [<Slack member ID>]]
 #
 # Without a channel the package is for anyone: the owner gives the ID of their own channel
 # while Claude installs it (one channel, one installation; see CLAUDE.md, step 6).
-# The zip is named with the build date («Huddle Notes 2026-11-13.zip»); inside it is the
-# folder «Huddle Notes».
+# The zip is named with the build date («Call Recaps 2026-11-13.zip»); inside it is the
+# folder «Call Recaps».
 #
 # From the team data folder only the glossary named in package/env.template is taken: other
 # teams' glossaries stay out. Faces and voices (people/) stay out too:
@@ -17,8 +17,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 data="${1:?team data folder}"
-out="${2:?output folder}/Huddle Notes"
-zip="$(dirname "$out")/Huddle Notes $(date +%Y-%m-%d).zip"  # no dots: they would read as an extension
+out="${2:?output folder}/Call Recaps"
+zip="$(dirname "$out")/Call Recaps $(date +%Y-%m-%d).zip"  # no dots: they would read as an extension
 channel="${3:-}"
 member="${4:-}"
 [[ ! -e "$out" && ! -e "$zip" ]] || { echo "$out or $zip already exists" >&2; exit 1; }

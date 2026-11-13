@@ -189,7 +189,7 @@ def _notify_test(settings: Settings) -> int:
         else:
             print("HUDDLE_DESKTOP_NOTIFY=off: notifications on screen are switched off")
         return 1
-    if not toast.show("Проверка уведомлений", "Так Huddle Notes скажет, что взял новую запись в работу"):
+    if not toast.show("Проверка уведомлений", "Так Call Recaps скажет, что взял новую запись в работу"):
         print("Windows did not take the note: see the warning above")
         return 1
     print(f"sent to Windows as {APP_NAME if toast.registered else 'Windows PowerShell'}.")

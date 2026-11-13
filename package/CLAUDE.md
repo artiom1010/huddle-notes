@@ -1,11 +1,11 @@
-# Huddle Notes — инструкция для Claude
+# Call Recaps — инструкция для Claude
 
 Эта папка делает заметки и расшифровки Slack-хадлов команды. Ты помогаешь её владельцу:
 устанавливаешь всё один раз, отвечаешь на вопросы по звонкам и записываешь пожелания
 к заметкам.
 
 ```
-Huddle Notes/
+Call Recaps/
   Записи/       сюда OBS сохраняет видео хадлов
   Результаты/   один файл на звонок: Заметки + Расшифровка; .huddle-notes-journal.json — что обработано
   данные/       словари, модели, work/, logs/; пожелания.md — пожелания команды к заметкам;
@@ -29,6 +29,13 @@ Huddle Notes/
 без него. Выключается командой `Set-Env HUDDLE_DESKTOP_NOTIFY off` (шаг 6). На этом компьютере его ещё не
 видели: проверено только, что Windows собирает его из скрипта программы. Поэтому после
 установки или обновления спроси владельца, всплыло ли пробное (`notify-test`).
+
+**Старое имя.** Раньше программа называлась Huddle Notes, и в установках того времени папка и
+задача автозапуска в Планировщике называются «Huddle Notes». Какая задача есть на этом компьютере:
+`Get-ScheduledTask -TaskName 'Call Recaps', 'Huddle Notes' -ErrorAction SilentlyContinue | Select-Object TaskName`.
+В командах ниже подставляй её имя вместо «Call Recaps». Нет ни одной — установка новая, имя
+«Call Recaps». Есть обе — скажи владельцу и ничего не удаляй. Вторую задачу под новым именем не
+заводи: две задачи запустили бы два наблюдателя.
 
 **Ты и программа — не одно и то же.** Папку «Записи» проверяет программа-наблюдатель, а не ты.
 Заметки пишешь тоже не ты: их пишет отдельный запуск `claude -p` (Claude Code для терминала,
@@ -166,7 +173,8 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
      ```powershell
      $l = Select-String -Path .env -Pattern '^\s*SLACK_BOT_TOKEN\s*=' | Select-Object -First 1; [bool]($l -and $l.Line -match '=\s*["'']?xoxb-')
      ```
-7. Автозапуск наблюдателя при входе в Windows:
+7. Автозапуск наблюдателя при входе в Windows. Если задача «Huddle Notes» уже есть (старая
+   установка, см. «Старое имя»), новую не заводи: этот шаг уже сделан.
    ```powershell
    $root = (Get-Location).Path
    $exe = Join-Path $root "программа\.venv\Scripts\huddle-notes.exe"
@@ -174,9 +182,9 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
    $action = New-ScheduledTaskAction -Execute "powershell.exe" -WorkingDirectory $root `
      -Argument "-NoProfile -WindowStyle Hidden -Command `"& '$exe' --log '$log' watch`""
    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-   Register-ScheduledTask -TaskName "Huddle Notes" -Action $action -Trigger $trigger `
+   Register-ScheduledTask -TaskName "Call Recaps" -Action $action -Trigger $trigger `
      -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries)
-   Start-ScheduledTask -TaskName "Huddle Notes"
+   Start-ScheduledTask -TaskName "Call Recaps"
    ```
    Проверь, что в `данные\logs\watch.log` появилась строка `watching ...\Записи`. Потом
    `программа\.venv\Scripts\huddle-notes.exe notify-test` и спроси владельца, всплыло ли в углу
@@ -210,16 +218,16 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
   Ручная обработка журнал не трогает. Если этой записи в журнале нет или она там не доведена
   до конца (упала меньше трёх раз, не отправлена, без заметок), наблюдатель обработает её сам
   и пришлёт второе сообщение. Чтобы этого не было: сначала `Stop-ScheduledTask -TaskName
-  "Huddle Notes"` (работающий наблюдатель перезапишет журнал), потом обработка, потом в
+  "Call Recaps"` (работающий наблюдатель перезапишет журнал), потом обработка, потом в
   `Результаты\.huddle-notes-journal.json` у этой записи: `status` "done", `attempts` 0,
   `delivered` true, `notes_error` null, `retry_after` null, `size` — текущий размер файла
-  записи; потом `Start-ScheduledTask -TaskName "Huddle Notes"`.
+  записи; потом `Start-ScheduledTask -TaskName "Call Recaps"`.
 - **Вопросы по звонкам** («что поручили Жене?», «где говорили про iOS?»): ищи в файлах
   «Результатов», отвечай со временем из расшифровки. Помни, что расшифровка бывает неточной и
   в ней не подписано, кто говорит: называй человека, только если это видно из самого текста.
 - **«Включи имена»** (кто какую реплику сказал): это владелец решает вместе с разработчиком.
   `Set-Env HUDDLE_SPEAKERS on` (команда из шага 6), потом модели (шаг 4) и перезапуск задачи
-  «Huddle Notes». Без базы лиц в `данные\people` программа сначала никого не узнаёт.
+  «Call Recaps». Без базы лиц в `данные\people` программа сначала никого не узнаёт.
 - **Пожелание к заметкам** («пиши короче», «задачи всегда с датами»): допиши в конец
   `данные\пожелания.md` строку в том же виде, что и остальные:
   `- ДД.ММ.ГГГГ, <кто> (Claude Code): <пожелание>`. Если файла нет, создай его с заголовком
@@ -230,9 +238,9 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
   терминами команды. Whisper получает его как подсказку и лучше слышит эти слова; Claude
   тоже получает его вместе с расшифровкой. Правь файл своим инструментом редактирования, в
   UTF-8: в другой кодировке наблюдатель не запустится. Наблюдатель читает словарь при
-  запуске, поэтому новый действует после перезапуска задачи «Huddle Notes»: останови её и
+  запуске, поэтому новый действует после перезапуска задачи «Call Recaps»: останови её и
   проверь, что программ из `.venv` не осталось (как в «Обнови программу»), потом
-  `Start-ScheduledTask -TaskName "Huddle Notes"`. Проверь, что в `данные\logs\watch.log`
+  `Start-ScheduledTask -TaskName "Call Recaps"`. Проверь, что в `данные\logs\watch.log`
   появилась новая строка `watching ...\Записи`. Если её нет: строка `no glossary …` — нет
   файла или неверное имя в `HUDDLE_GLOSSARY`; лог просто оборвался — файл не в UTF-8.
 - **«Покажи пожелания», «убери это пожелание»:** пожелание — строка, начинающаяся с «- », в
@@ -258,10 +266,11 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
   `sent to Windows`, а в углу экрана пусто, посмотри с владельцем центр уведомлений (Win+N, в
   Windows 10 — Win+A): при режиме «Не беспокоить» уведомление сразу ложится туда. Если и там
   нет, уведомления выключены в Параметры → Система → Уведомления (в Windows 10 — «Уведомления
-  и действия»): общий переключатель или для «Huddle Notes». Если уведомления включены, а
+  и действия»): общий переключатель или для «Call Recaps» (в старой установке может значиться
+  «Huddle Notes»). Если уведомления включены, а
   пробного нет ни в углу, ни в центре уведомлений, Windows, видимо, молча не принимает имя
-  «Huddle Notes»: выполни `Set-Env HUDDLE_DESKTOP_NOTIFY powershell` (команда из шага
-  6), перезапусти задачу «Huddle Notes» и
+  «Call Recaps»: выполни `Set-Env HUDDLE_DESKTOP_NOTIFY powershell` (команда из шага
+  6), перезапусти задачу «Call Recaps» и
   снова `notify-test`. Тогда в заголовке будет «Windows PowerShell», текст тот же. Так же
   выглядит уведомление, если имя не удалось записать в реестр (в логе строка
   `notifications go under Windows PowerShell's name`). `Set-Env HUDDLE_DESKTOP_NOTIFY off`
@@ -269,12 +278,13 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
 - **«Заметки не получились» с `Login expired`:** вход в `claude` истёк. Владелец снова
   выполняет `claude auth login` (шаг 5). Заметки к этому звонку придут сами: программа
   просит их заново раз в 30 минут, всего 12 попыток (около 5,5 часа).
-- **«Обнови программу из папки <путь>»** (владелец распаковал архив «Обновление Huddle Notes
-  <дата>», например «Обновление Huddle Notes 2026-11-12»:
+- **«Обнови программу из папки <путь>»** (владелец распаковал архив «Обновление Call Recaps
+  <дата>», например «Обновление Call Recaps 2026-11-12»:
   в нём `программа\` и `CLAUDE.md`). Сначала прочитай `CLAUDE.md` из этой папки: в новой версии
-  могут быть свои шаги. Потом из корня Huddle Notes; каждый блок — одной командой:
+  могут быть свои шаги. Потом из корня папки программы; каждый блок — одной командой. Если
+  задача называется «Huddle Notes» (см. «Старое имя»), подставь это имя во все команды ниже:
   ```powershell
-  Stop-ScheduledTask -TaskName "Huddle Notes"
+  Stop-ScheduledTask -TaskName "Call Recaps"
   $venv = (Resolve-Path программа\.venv -ErrorAction Stop).Path
   Get-Process | Where-Object { $_.Path -like "$venv\*" } | Select-Object Id, Name
   ```
@@ -289,14 +299,14 @@ $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [En
   uv pip install --python .venv\Scripts\python.exe --reinstall-package huddle-notes .
   cd ..
   программа\.venv\Scripts\huddle-notes.exe models download
-  Set-ScheduledTask -TaskName "Huddle Notes" -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries)
-  Start-ScheduledTask -TaskName "Huddle Notes"
+  Set-ScheduledTask -TaskName "Call Recaps" -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries)
+  Start-ScheduledTask -TaskName "Call Recaps"
   ```
   `Set-ScheduledTask` даёт задаче настройки из шага 7, если она поставлена раньше: на ноутбуке
   она тогда работает и от батареи.
   `models download` докачивает модели, которых не хватает новой версии; у уже скачанных
   сверяет контрольные суммы (это минута-две) и перекачивает только испорченные. Если он
-  упал (нет интернета), запусти его ещё раз и перезапусти задачу «Huddle Notes»: без модели
+  упал (нет интернета), запусти его ещё раз и перезапусти задачу «Call Recaps»: без модели
   VAD программа работает, но в логе будет строка `no VAD model`, а Whisper может зациклиться
   на долгой тишине.
   Проверь, что в `данные\logs\watch.log` появилась новая строка `watching ...\Записи`. Потом

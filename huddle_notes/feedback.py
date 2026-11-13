@@ -2,7 +2,7 @@
 
 Wishes live in one file people can read and edit (данные/пожелания.md); Claude gets them
 with every call's transcript. They come in two ways: a reply in the thread under the
-bot's message in Slack, read here, or the owner asking Claude Code in the Huddle Notes
+bot's message in Slack, read here, or the owner asking Claude Code in the Call Recaps
 folder, which edits the same file.
 
 A 👎 without words says nothing to fix, so the bot asks in the thread what is wrong.

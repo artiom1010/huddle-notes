@@ -36,7 +36,7 @@ def slack_text(result: CallResult, mention: str | None = None) -> str:
         who = ", ".join(f.stem for f in result.unknown_faces)
         lines.append(
             f"Не узнал: {who}. На снимке во вложении — в красной рамке. Кто это? Ответьте в Claude Code "
-            f"в папке Huddle Notes, например: «{result.unknown_faces[0].stem} — это Вася»."
+            f"в папке программы, например: «{result.unknown_faces[0].stem} — это Вася»."
         )
     return "\n".join(lines)
 
