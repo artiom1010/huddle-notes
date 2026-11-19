@@ -9,7 +9,7 @@ description = "Named transcripts and notes of Slack huddle recordings"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "numpy==2.5.4",
+    "numpy==2.5.5",
     "sherpa-onnx==2.0.1",
     "slack-sdk==3.46.0",
     "soundfile==0.14.0",
